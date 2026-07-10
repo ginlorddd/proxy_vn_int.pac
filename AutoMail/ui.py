@@ -125,6 +125,8 @@ class AutoMailWindow(QMainWindow):
         self.statusBar().showMessage(f"Config: {CONFIG_FILE}")
 
     def _build_toolbar(self) -> None:
+        if not hasattr(self, "editor"):
+            raise RuntimeError("AutoMail editor must be created before building the formatting toolbar.")
         bar = QToolBar("Định dạng văn bản", self)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.font_family = QComboBox()
