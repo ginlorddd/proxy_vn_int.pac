@@ -48,6 +48,12 @@ def test_editor_is_created_before_toolbar_is_built() -> None:
     assert editor_index < toolbar_index
 
 
+def test_toolbar_does_not_bind_to_editor_before_runtime() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "currentTextChanged.connect(self.editor.setFontFamily)" not in source
+    assert "currentTextChanged.connect(self._set_editor_font_family)" in source
+
+
 def test_weekday_controls_are_persisted() -> None:
     source = UI_PATH.read_text(encoding="utf-8")
     assert "self.weekday_checks" in source

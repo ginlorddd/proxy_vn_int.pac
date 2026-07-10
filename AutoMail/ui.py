@@ -125,13 +125,11 @@ class AutoMailWindow(QMainWindow):
         self.statusBar().showMessage(f"Config: {CONFIG_FILE}")
 
     def _build_toolbar(self) -> None:
-        if not hasattr(self, "editor"):
-            raise RuntimeError("AutoMail editor must be created before building the formatting toolbar.")
         bar = QToolBar("Định dạng văn bản", self)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
         self.font_family = QComboBox()
         self.font_family.addItems(["Calibri", "Arial", "Times New Roman", "Tahoma", "Verdana"])
-        self.font_family.currentTextChanged.connect(self.editor.setFontFamily)
+        self.font_family.currentTextChanged.connect(self._set_editor_font_family)
         self.font_size = QSpinBox()
         self.font_size.setRange(8, 48)
         self.font_size.setValue(11)
@@ -153,6 +151,10 @@ class AutoMailWindow(QMainWindow):
             action = QAction(title, self)
             action.triggered.connect(slot)
             bar.addAction(action)
+
+    def _set_editor_font_family(self, font_family: str) -> None:
+        if hasattr(self, "editor"):
+            self.editor.setFontFamily(font_family)
 
     def _insert_list(self, style: QTextListFormat.Style) -> None:
         cursor = self.editor.textCursor()
