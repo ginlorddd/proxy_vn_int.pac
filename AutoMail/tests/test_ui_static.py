@@ -106,5 +106,16 @@ def test_editor_gets_priority_over_compact_sections() -> None:
     assert "mail_card.setMaximumHeight(310)" in source
     assert "schedule_card.setMaximumHeight(500)" in source
     assert "self.calendar.setMaximumHeight(130)" in source
-    assert "self.date_schedule_table.setMinimumHeight(120)" in source
-    assert "self.date_schedule_table.setMaximumHeight(150)" in source
+    assert "self.date_schedule_table.setMinimumHeight(150)" in source
+    assert "self.date_schedule_table.setMaximumHeight(190)" in source
+
+
+def test_schedule_supports_multiple_templates_repeats_and_recipients() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert 'QComboBox::drop-down' in source
+    assert 'QSpinBox::up-button' in source and 'QSpinBox::down-button' in source
+    assert 'self.date_schedule_table = QTableWidget(0, 7)' in source
+    assert '["Ngày", "Giờ", "Lặp", "Template/Nội dung mail", "To", "Cc", "Bcc"]' in source
+    assert 'def add_template_schedule' in source
+    assert '"repeat": values[2] or "once"' in source
+    assert '"to": _split(values[4])' in source

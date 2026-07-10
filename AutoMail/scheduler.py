@@ -40,9 +40,13 @@ class MailScheduler:
             if date_item or should_send_now(schedule, self._last_key):
                 self._last_key = datetime.now().strftime("%Y%m%d%H%M")
                 mail = dict(config.get("mail", {}))
-                if date_item and date_item.get("template"):
-                    mail.pop("body", None)
-                    mail["template"] = date_item["template"]
+                if date_item:
+                    for field in ("to", "cc", "bcc"):
+                        if date_item.get(field):
+                            mail[field] = date_item[field]
+                    if date_item.get("template"):
+                        mail.pop("body", None)
+                        mail["template"] = date_item["template"]
                 send_mail(mail)
             self._stop.wait(self.interval_seconds)
 
@@ -54,9 +58,29 @@ def matching_date_schedule(schedule: dict[str, Any], last_key: str) -> dict[str,
     if now.strftime("%Y%m%d%H%M") == last_key:
         return None
     for item in schedule.get("date_schedules", []):
-        if item.get("date") == now.strftime("%Y-%m-%d") and item.get("time", "08:00") == now.strftime("%H:%M"):
+        if _schedule_item_matches(item, now):
             return item
     return None
+
+
+def _schedule_item_matches(item: dict[str, Any], now: datetime) -> bool:
+    if item.get("time", "08:00") != now.strftime("%H:%M"):
+        return False
+    repeat = str(item.get("repeat", "once")).lower()
+    item_date = str(item.get("date", ""))
+    if repeat == "daily":
+        return True
+    if repeat == "weekly":
+        try:
+            return datetime.fromisoformat(item_date).weekday() == now.weekday()
+        except ValueError:
+            return False
+    if repeat == "monthly":
+        try:
+            return datetime.fromisoformat(item_date).day == now.day
+        except ValueError:
+            return False
+    return item_date == now.strftime("%Y-%m-%d")
 
 
 def should_send_now(schedule: dict[str, Any], last_key: str) -> bool:

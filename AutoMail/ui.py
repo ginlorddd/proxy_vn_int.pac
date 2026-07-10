@@ -153,6 +153,10 @@ QLabel#heroTitle { color: white; font-size: 22pt; font-weight: 800; }
 QLabel#heroSubtitle { color: #e0f2fe; font-size: 10.5pt; }
 QLabel#pill { background: rgba(255,255,255,0.20); color: white; border-radius: 10px; padding: 6px 10px; font-weight: 700; }
 QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 9px; padding: 5px 8px; selection-background-color: #bfdbfe; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 30px; border-left: 1px solid #d7deea; border-top-right-radius: 9px; border-bottom-right-radius: 9px; background: #eef4ff; }
+QComboBox::down-arrow { width: 10px; height: 10px; }
+QSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 26px; border-left: 1px solid #d7deea; border-top-right-radius: 9px; background: #eef4ff; }
+QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 26px; border-left: 1px solid #d7deea; border-bottom-right-radius: 9px; background: #eef4ff; }
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #2563eb; }
 QPushButton { background: #2563eb; color: white; border: none; border-radius: 9px; padding: 9px 14px; font-weight: 700; }
 QPushButton:hover { background: #1d4ed8; }
@@ -303,12 +307,19 @@ class AutoMailWindow(QMainWindow):
         self.calendar.selectionChanged.connect(self.add_selected_date_schedule)
         schedule_layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
         schedule_layout.addWidget(self.calendar)
-        self.date_schedule_table = QTableWidget(0, 3)
-        self.date_schedule_table.setMinimumHeight(120)
-        self.date_schedule_table.setMaximumHeight(150)
-        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Template/Nội dung mail"])
-        self.date_schedule_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.date_schedule_table = QTableWidget(0, 7)
+        self.date_schedule_table.setMinimumHeight(150)
+        self.date_schedule_table.setMaximumHeight(190)
+        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Lặp", "Template/Nội dung mail", "To", "Cc", "Bcc"])
+        self.date_schedule_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         schedule_layout.addWidget(self.date_schedule_table)
+        schedule_buttons = QHBoxLayout()
+        add_template = QPushButton("Thêm template vào lịch")
+        add_template.setObjectName("secondary")
+        add_template.clicked.connect(self.add_template_schedule)
+        schedule_buttons.addWidget(add_template)
+        schedule_buttons.addStretch()
+        schedule_layout.addLayout(schedule_buttons)
         layout.addWidget(schedule_card)
 
         buttons = QHBoxLayout()
@@ -509,33 +520,73 @@ class AutoMailWindow(QMainWindow):
         self.cc.setText(_join(_split(self.cc.text()) + cc_values))
         self.bcc.setText(_join(_split(self.bcc.text()) + bcc_values))
 
-    def add_selected_date_schedule(self) -> None:
-        date_text = self.calendar.selectedDate().toString("yyyy-MM-dd")
+    def _insert_schedule_row(
+        self,
+        *,
+        date: str,
+        time: str,
+        repeat: str = "once",
+        template: str = "",
+        to: str = "",
+        cc: str = "",
+        bcc: str = "",
+    ) -> None:
         row = self.date_schedule_table.rowCount()
         self.date_schedule_table.insertRow(row)
-        for col, value in enumerate([date_text, self.schedule_time.text().strip() or "08:00", self.config.get("mail", {}).get("template", "")]):
+        for col, value in enumerate([date, time, repeat, template, to, cc, bcc]):
             self.date_schedule_table.setItem(row, col, QTableWidgetItem(value))
+
+    def add_selected_date_schedule(self) -> None:
+        self._insert_schedule_row(
+            date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
+            time=self.schedule_time.text().strip() or "08:00",
+            repeat="once",
+            template=self.config.get("mail", {}).get("template", ""),
+            to=self.to.text(),
+            cc=self.cc.text(),
+            bcc=self.bcc.text(),
+        )
+
+    def add_template_schedule(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Thêm template vào lịch", str(Path(__file__).parent / "templates"), "Email (*.eml)")
+        if not path:
+            return
+        self._insert_schedule_row(
+            date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
+            time=self.schedule_time.text().strip() or "08:00",
+            repeat=self.schedule_type.currentText() if self.schedule_type.currentText() in {"daily", "weekly"} else "once",
+            template=path,
+            to=self.to.text(),
+            cc=self.cc.text(),
+            bcc=self.bcc.text(),
+        )
 
     def _load_date_schedules(self, schedules: list[dict[str, Any]]) -> None:
         self.date_schedule_table.setRowCount(0)
         for item in schedules:
-            row = self.date_schedule_table.rowCount()
-            self.date_schedule_table.insertRow(row)
-            self.date_schedule_table.setItem(row, 0, QTableWidgetItem(str(item.get("date", ""))))
-            self.date_schedule_table.setItem(row, 1, QTableWidgetItem(str(item.get("time", "08:00"))))
-            self.date_schedule_table.setItem(row, 2, QTableWidgetItem(str(item.get("template", ""))))
+            self._insert_schedule_row(
+                date=str(item.get("date", "")),
+                time=str(item.get("time", "08:00")),
+                repeat=str(item.get("repeat", "once")),
+                template=str(item.get("template", "")),
+                to=_join(item.get("to", [])),
+                cc=_join(item.get("cc", [])),
+                bcc=_join(item.get("bcc", [])),
+            )
 
-    def _collect_date_schedules(self) -> list[dict[str, str]]:
-        schedules = []
+    def _collect_date_schedules(self) -> list[dict[str, Any]]:
+        schedules: list[dict[str, Any]] = []
         for row in range(self.date_schedule_table.rowCount()):
-            date_item = self.date_schedule_table.item(row, 0)
-            time_item = self.date_schedule_table.item(row, 1)
-            template_item = self.date_schedule_table.item(row, 2)
-            if date_item and date_item.text().strip():
+            values = [self.date_schedule_table.item(row, col).text().strip() if self.date_schedule_table.item(row, col) else "" for col in range(7)]
+            if values[0]:
                 schedules.append({
-                    "date": date_item.text().strip(),
-                    "time": time_item.text().strip() if time_item else "08:00",
-                    "template": template_item.text().strip() if template_item else "",
+                    "date": values[0],
+                    "time": values[1] or "08:00",
+                    "repeat": values[2] or "once",
+                    "template": values[3],
+                    "to": _split(values[4]),
+                    "cc": _split(values[5]),
+                    "bcc": _split(values[6]),
                 })
         return schedules
 
