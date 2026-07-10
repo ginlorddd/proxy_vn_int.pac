@@ -31,6 +31,8 @@ def test_scheduler_date_item_can_override_recipients_and_repeat() -> None:
 def test_sender_requires_selected_account_match() -> None:
     source = SENDER_PATH.read_text(encoding="utf-8")
     assert "def _iter_com_collection" in source
-    assert "selected_account = None" in source
+    assert "def _find_outlook_account" in source
     assert "raise RuntimeError" in source
-    assert "mail.SendUsingAccount = selected_account" in source
+    assert "def _apply_send_account" in source
+    assert "mail.SendUsingAccount = account" in source
+    assert "mail.SentOnBehalfOfName = smtp" in source

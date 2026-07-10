@@ -52,6 +52,28 @@ def _account_smtp(account: Any) -> str:
         return ""
 
 
+def _find_outlook_account(session: Any, wanted: str) -> Any:
+    wanted_account = _extract_email(wanted).lower()
+    for account in _iter_com_collection(session.Accounts):
+        smtp = _account_smtp(account).lower()
+        display = str(getattr(account, "DisplayName", "") or "").lower()
+        user_name = str(getattr(account, "UserName", "") or "").lower()
+        candidates = {smtp, display, user_name, f"{display} <{smtp}>"}
+        if wanted_account in candidates or wanted_account == smtp:
+            return account
+    raise RuntimeError(f"Không tìm thấy Outlook account đã chọn: {wanted}")
+
+
+def _apply_send_account(mail: Any, account: Any) -> None:
+    mail.SendUsingAccount = account
+    smtp = _account_smtp(account)
+    if smtp:
+        try:
+            mail.SentOnBehalfOfName = smtp
+        except Exception:
+            pass
+
+
 def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
     """Gửi email qua Microsoft Outlook desktop bằng COM (Windows + pywin32)."""
     try:
@@ -70,19 +92,9 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
 
         outlook = win32com.client.Dispatch("Outlook.Application")
         mail = outlook.CreateItem(0)
-        if cfg.get("account"):
-            wanted_account = _extract_email(str(cfg["account"])).lower()
-            selected_account = None
-            for account in _iter_com_collection(outlook.Session.Accounts):
-                smtp = _account_smtp(account).lower()
-                display = str(getattr(account, "DisplayName", "") or "").lower()
-                candidates = {smtp, display, f"{display} <{smtp}>"}
-                if wanted_account in candidates or wanted_account == _extract_email(f"{display} <{smtp}>").lower():
-                    selected_account = account
-                    break
-            if selected_account is None:
-                raise RuntimeError(f"Không tìm thấy Outlook account đã chọn: {cfg['account']}")
-            mail.SendUsingAccount = selected_account
+        selected_account = _find_outlook_account(outlook.Session, str(cfg["account"])) if cfg.get("account") else None
+        if selected_account is not None:
+            _apply_send_account(mail, selected_account)
         mail.To = ";".join(_list(cfg.get("to")))
         mail.CC = ";".join(_list(cfg.get("cc")))
         mail.BCC = ";".join(_list(cfg.get("bcc")))
@@ -102,6 +114,8 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
             path = Path(attachment)
             if path.exists():
                 mail.Attachments.Add(str(path.resolve()))
+        if selected_account is not None:
+            _apply_send_account(mail, selected_account)
         mail.Send()
         summary = f"Đã gửi mail tới {mail.To} - {mail.Subject}"
         logger.info(summary)
