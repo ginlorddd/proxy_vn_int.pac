@@ -25,6 +25,22 @@ def _extract_email(value: str) -> str:
     return text
 
 
+def _account_smtp(account: Any) -> str:
+    smtp = str(getattr(account, "SmtpAddress", "") or "").strip()
+    if smtp:
+        return smtp
+    try:
+        user = account.CurrentUser
+        entry = user.AddressEntry
+        if str(getattr(entry, "Type", "")).upper() == "EX":
+            exchange_user = entry.GetExchangeUser()
+            smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
+            if smtp:
+                return smtp
+        return str(getattr(entry, "Address", "") or "").strip()
+    except Exception:
+        return ""
+
 def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
     """Gửi email qua Microsoft Outlook desktop bằng COM (Windows + pywin32)."""
     try:
@@ -46,9 +62,9 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
         if cfg.get("account"):
             wanted_account = _extract_email(str(cfg["account"])).lower()
             for account in outlook.Session.Accounts:
-                smtp = str(getattr(account, "SmtpAddress", "") or "").lower()
+                smtp = _account_smtp(account).lower()
                 display = str(getattr(account, "DisplayName", "") or "").lower()
-                if wanted_account in {smtp, display}:
+                if wanted_account in {smtp, display} or wanted_account in f"{display} <{smtp}>":
                     mail.SendUsingAccount = account
                     break
         mail.To = ";".join(_list(cfg.get("to")))

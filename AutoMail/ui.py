@@ -24,7 +24,10 @@ try:
         QFileDialog,
         QFontComboBox,
         QFormLayout,
+        QFrame,
+        QGroupBox,
         QHBoxLayout,
+        QHeaderView,
         QLabel,
         QLineEdit,
         QMainWindow,
@@ -74,12 +77,22 @@ def _account_smtp(account: Any) -> str:
         return ""
 
 
+def _add_account_value(accounts: list[str], display: str, smtp: str) -> None:
+    display = display.strip()
+    smtp = smtp.strip()
+    value = f"{display} <{smtp}>" if smtp and display and display.lower() != smtp.lower() else smtp or display
+    if value and value not in accounts:
+        accounts.append(value)
+
+
 def get_outlook_accounts() -> list[str]:
-    """Đọc account Outlook đã đăng nhập, hỗ trợ cả Exchange account không có SmtpAddress trực tiếp."""
+    """Đọc đầy đủ account Outlook đã đăng nhập từ MAPI, Exchange và CurrentUser."""
+    pythoncom = None
     try:
-        import pythoncom  # type: ignore
+        import pythoncom as _pythoncom  # type: ignore
         import win32com.client  # type: ignore
 
+        pythoncom = _pythoncom
         pythoncom.CoInitialize()
         try:
             outlook = win32com.client.gencache.EnsureDispatch("Outlook.Application")
@@ -87,25 +100,52 @@ def get_outlook_accounts() -> list[str]:
             outlook = win32com.client.Dispatch("Outlook.Application")
         session = outlook.Session or outlook.GetNamespace("MAPI")
         accounts: list[str] = []
+
         for account in session.Accounts:
             smtp = _account_smtp(account)
             display = str(getattr(account, "DisplayName", "") or smtp).strip()
-            value = f"{display} <{smtp}>" if smtp and display and display.lower() != smtp.lower() else smtp or display
-            if value and value not in accounts:
-                accounts.append(value)
+            _add_account_value(accounts, display, smtp)
+
+        current_user = getattr(session, "CurrentUser", None)
+        if current_user is not None:
+            try:
+                entry = current_user.AddressEntry
+                smtp = ""
+                if str(getattr(entry, "Type", "")).upper() == "EX":
+                    exchange_user = entry.GetExchangeUser()
+                    smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
+                smtp = smtp or str(getattr(entry, "Address", "") or "").strip()
+                _add_account_value(accounts, str(getattr(current_user, "Name", "") or smtp), smtp)
+            except Exception:
+                pass
+
         return accounts
     except Exception:
         return []
+    finally:
+        if pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
 
 MODERN_STYLE = """
-QMainWindow, QWidget { background: #f6f8fb; color: #1f2937; font-size: 10pt; }
-QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 6px; padding: 6px; }
-QPushButton { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+QMainWindow, QWidget { background: #f3f6fb; color: #111827; font-family: Segoe UI, Arial; font-size: 10pt; }
+QGroupBox#card { background: #ffffff; border: 1px solid #dbe3ef; border-radius: 14px; margin-top: 14px; padding: 16px; font-weight: 700; }
+QGroupBox#card::title { subcontrol-origin: margin; left: 16px; padding: 0 8px; color: #1d4ed8; }
+QFrame#hero { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #1d4ed8, stop:1 #06b6d4); border-radius: 18px; }
+QLabel#heroTitle { color: white; font-size: 22pt; font-weight: 800; }
+QLabel#heroSubtitle { color: #e0f2fe; font-size: 10.5pt; }
+QLabel#pill { background: rgba(255,255,255,0.20); color: white; border-radius: 10px; padding: 6px 10px; font-weight: 700; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 9px; padding: 8px; selection-background-color: #bfdbfe; }
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #2563eb; }
+QPushButton { background: #2563eb; color: white; border: none; border-radius: 9px; padding: 9px 14px; font-weight: 700; }
 QPushButton:hover { background: #1d4ed8; }
 QPushButton#secondary { background: #e8eef8; color: #1f2937; }
-QToolBar { background: #edf2fb; border: 1px solid #d7deea; spacing: 6px; padding: 6px; }
-QHeaderView::section { background: #e8eef8; padding: 6px; border: 0; font-weight: 600; }
+QPushButton#success { background: #059669; }
+QToolBar { background: #ffffff; border: 1px solid #d7deea; spacing: 6px; padding: 6px; }
+QHeaderView::section { background: #e8eef8; padding: 8px; border: 0; font-weight: 700; }
 """
 
 
@@ -125,9 +165,33 @@ class AutoMailWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget(self)
         layout = QVBoxLayout(root)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(14)
         self.setCentralWidget(root)
 
-        form = QFormLayout()
+        hero = QFrame()
+        hero.setObjectName("hero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(22, 18, 22, 18)
+        title_col = QVBoxLayout()
+        hero_title = QLabel("AutoMail Outlook")
+        hero_title.setObjectName("heroTitle")
+        hero_subtitle = QLabel("Soạn mail rich-text, chọn tài khoản Outlook đã đăng nhập và lập lịch gửi tự động.")
+        hero_subtitle.setObjectName("heroSubtitle")
+        title_col.addWidget(hero_title)
+        title_col.addWidget(hero_subtitle)
+        hero_layout.addLayout(title_col, 1)
+        self.account_count = QLabel("Outlook: đang tải")
+        self.account_count.setObjectName("pill")
+        hero_layout.addWidget(self.account_count)
+        layout.addWidget(hero)
+
+        mail_card = QGroupBox("Thông tin gửi mail")
+        mail_card.setObjectName("card")
+        form = QFormLayout(mail_card)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
         self.account = QComboBox()
         self.account.setEditable(True)
         self.refresh_accounts()
@@ -150,14 +214,21 @@ class AutoMailWindow(QMainWindow):
         import_recipients.clicked.connect(self.import_recipients)
         form.addRow("Import người nhận", import_recipients)
         form.addRow("Tiêu đề", self.subject)
-        layout.addLayout(form)
+        layout.addWidget(mail_card)
 
+        editor_card = QGroupBox("Nội dung email")
+        editor_card.setObjectName("card")
+        editor_layout = QVBoxLayout(editor_card)
         self.editor = QTextEdit()
         self.editor.setAcceptRichText(True)
         self.editor.setPlaceholderText("Soạn nội dung mail tại đây hoặc chọn file .eml để nạp nội dung...")
-        layout.addWidget(self.editor, 1)
+        editor_layout.addWidget(self.editor, 1)
+        layout.addWidget(editor_card, 1)
         self._build_toolbar()
 
+        schedule_card = QGroupBox("Lịch gửi")
+        schedule_card.setObjectName("card")
+        schedule_layout = QVBoxLayout(schedule_card)
         schedule_row = QHBoxLayout()
         self.schedule_enabled = QCheckBox("Bật schedule")
         self.schedule_type = QComboBox()
@@ -174,7 +245,7 @@ class AutoMailWindow(QMainWindow):
         schedule_row.addWidget(QLabel("Interval phút"))
         schedule_row.addWidget(self.interval)
         schedule_row.addStretch()
-        layout.addLayout(schedule_row)
+        schedule_layout.addLayout(schedule_row)
 
         weekday_row = QHBoxLayout()
         weekday_row.addWidget(QLabel("Gửi vào thứ"))
@@ -185,16 +256,18 @@ class AutoMailWindow(QMainWindow):
             weekday_row.addWidget(check)
             self.weekday_checks.append(check)
         weekday_row.addStretch()
-        layout.addLayout(weekday_row)
+        schedule_layout.addLayout(weekday_row)
 
         self.calendar = QCalendarWidget()
         self.calendar.setGridVisible(True)
         self.calendar.selectionChanged.connect(self.add_selected_date_schedule)
-        layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
-        layout.addWidget(self.calendar)
+        schedule_layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
+        schedule_layout.addWidget(self.calendar)
         self.date_schedule_table = QTableWidget(0, 3)
         self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Template/Nội dung mail"])
-        layout.addWidget(self.date_schedule_table)
+        self.date_schedule_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        schedule_layout.addWidget(self.date_schedule_table)
+        layout.addWidget(schedule_card)
 
         buttons = QHBoxLayout()
         pick_eml = QPushButton("Chọn .eml và nạp nội dung")
@@ -202,6 +275,7 @@ class AutoMailWindow(QMainWindow):
         save = QPushButton("Lưu config")
         save.clicked.connect(self.save)
         send = QPushButton("Gửi thử")
+        send.setObjectName("success")
         send.clicked.connect(self.send_test)
         state = QPushButton("Xem trạng thái")
         state.clicked.connect(self.show_state)
@@ -326,6 +400,8 @@ class AutoMailWindow(QMainWindow):
             self.account.setCurrentText(current)
         elif accounts:
             self.account.setCurrentIndex(1)
+        if hasattr(self, "account_count"):
+            self.account_count.setText(f"Outlook: {len(accounts)} account" if accounts else "Outlook: chưa tìm thấy")
         if hasattr(self, "statusBar"):
             self.statusBar().showMessage(f"Đã tải {len(accounts)} account Outlook", 4000)
 
