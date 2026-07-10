@@ -41,12 +41,13 @@ class MailScheduler:
                 self._last_key = datetime.now().strftime("%Y%m%d%H%M")
                 mail = dict(config.get("mail", {}))
                 if date_item:
-                    for field in ("to", "cc", "bcc"):
+                    for field in ("account", "to", "cc", "bcc", "subject"):
                         if date_item.get(field):
                             mail[field] = date_item[field]
                     if date_item.get("template"):
                         mail.pop("body", None)
                         mail["template"] = date_item["template"]
+                        mail["force_template"] = True
                 send_mail(mail)
             self._stop.wait(self.interval_seconds)
 

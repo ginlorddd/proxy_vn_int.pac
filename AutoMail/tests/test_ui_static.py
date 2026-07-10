@@ -114,11 +114,11 @@ def test_schedule_supports_multiple_templates_repeats_and_recipients() -> None:
     source = UI_PATH.read_text(encoding="utf-8")
     assert 'QComboBox::drop-down' in source
     assert 'QSpinBox::up-button' in source and 'QSpinBox::down-button' in source
-    assert 'self.date_schedule_table = QTableWidget(0, 7)' in source
-    assert '["Ngày", "Giờ", "Lặp", "Template/Nội dung mail", "To", "Cc", "Bcc"]' in source
+    assert 'self.date_schedule_table = QTableWidget(0, 8)' in source
+    assert '["Ngày", "Giờ", "Lặp", "From", "Template/Nội dung mail", "To", "Cc", "Bcc"]' in source
     assert 'def add_template_schedule' in source
     assert '"repeat": values[2] or "once"' in source
-    assert '"to": _split(values[4])' in source
+    assert '"to": _split(values[5])' in source
 
 
 def test_schedule_rows_can_be_deleted() -> None:
@@ -141,3 +141,5 @@ def test_master_calendar_template_library_and_new_config_flow() -> None:
     assert "def new_day_mail_config" in source
     assert "self.to.clear()" in source and "self.editor.clear()" in source
     assert "refresh_calendar_markers" in source
+    assert "def _current_account_value" in source
+    assert "account=self._current_account_value()" in source

@@ -319,13 +319,13 @@ class AutoMailWindow(QMainWindow):
         add_library_template.clicked.connect(self.add_template_library_item)
         template_row.addWidget(add_library_template)
         schedule_layout.addLayout(template_row)
-        self.date_schedule_table = QTableWidget(0, 7)
+        self.date_schedule_table = QTableWidget(0, 8)
         self.date_schedule_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.date_schedule_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.date_schedule_table.setMinimumHeight(150)
         self.date_schedule_table.setMaximumHeight(190)
-        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Lặp", "Template/Nội dung mail", "To", "Cc", "Bcc"])
-        self.date_schedule_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Lặp", "From", "Template/Nội dung mail", "To", "Cc", "Bcc"])
+        self.date_schedule_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         schedule_layout.addWidget(self.date_schedule_table)
         schedule_buttons = QHBoxLayout()
         new_config = QPushButton("Thêm mới cấu hình ngày")
@@ -599,6 +599,9 @@ class AutoMailWindow(QMainWindow):
                 self.calendar.setDateTextFormat(self.calendar.selectedDate().fromString(date_text, "yyyy-MM-dd"), marker)
                 self._marked_schedule_dates.add(date_text)
 
+    def _current_account_value(self) -> str:
+        return "" if self.account.currentIndex() <= 0 else str(self.account.currentData() or _extract_email(self.account.currentText()))
+
     def new_day_mail_config(self) -> None:
         self.to.clear()
         self.cc.clear()
@@ -610,6 +613,7 @@ class AutoMailWindow(QMainWindow):
             date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
             time=self.schedule_time.text().strip() or "08:00",
             repeat="once",
+            account=self._current_account_value(),
         )
         self.refresh_calendar_markers()
 
@@ -629,6 +633,7 @@ class AutoMailWindow(QMainWindow):
         date: str,
         time: str,
         repeat: str = "once",
+        account: str = "",
         template: str = "",
         to: str = "",
         cc: str = "",
@@ -636,7 +641,7 @@ class AutoMailWindow(QMainWindow):
     ) -> None:
         row = self.date_schedule_table.rowCount()
         self.date_schedule_table.insertRow(row)
-        for col, value in enumerate([date, time, repeat, template, to, cc, bcc]):
+        for col, value in enumerate([date, time, repeat, account, template, to, cc, bcc]):
             self.date_schedule_table.setItem(row, col, QTableWidgetItem(value))
 
     def add_selected_date_schedule(self) -> None:
@@ -644,6 +649,7 @@ class AutoMailWindow(QMainWindow):
             date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
             time=self.schedule_time.text().strip() or "08:00",
             repeat="once",
+            account=self._current_account_value(),
             template=self.config.get("mail", {}).get("template", ""),
             to=self.to.text(),
             cc=self.cc.text(),
@@ -661,6 +667,7 @@ class AutoMailWindow(QMainWindow):
             date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
             time=self.schedule_time.text().strip() or "08:00",
             repeat=self.schedule_type.currentText() if self.schedule_type.currentText() in {"daily", "weekly"} else "once",
+            account=self._current_account_value(),
             template=path,
             to=self.to.text(),
             cc=self.cc.text(),
@@ -675,6 +682,7 @@ class AutoMailWindow(QMainWindow):
                 date=str(item.get("date", "")),
                 time=str(item.get("time", "08:00")),
                 repeat=str(item.get("repeat", "once")),
+                account=str(item.get("account", "")),
                 template=str(item.get("template", "")),
                 to=_join(item.get("to", [])),
                 cc=_join(item.get("cc", [])),
@@ -684,16 +692,17 @@ class AutoMailWindow(QMainWindow):
     def _collect_date_schedules(self) -> list[dict[str, Any]]:
         schedules: list[dict[str, Any]] = []
         for row in range(self.date_schedule_table.rowCount()):
-            values = [self.date_schedule_table.item(row, col).text().strip() if self.date_schedule_table.item(row, col) else "" for col in range(7)]
+            values = [self.date_schedule_table.item(row, col).text().strip() if self.date_schedule_table.item(row, col) else "" for col in range(8)]
             if values[0]:
                 schedules.append({
                     "date": values[0],
                     "time": values[1] or "08:00",
                     "repeat": values[2] or "once",
-                    "template": values[3],
-                    "to": _split(values[4]),
-                    "cc": _split(values[5]),
-                    "bcc": _split(values[6]),
+                    "account": values[3],
+                    "template": values[4],
+                    "to": _split(values[5]),
+                    "cc": _split(values[6]),
+                    "bcc": _split(values[7]),
                 })
         return schedules
 
