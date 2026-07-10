@@ -61,7 +61,6 @@ class AutoMailWindow(QMainWindow):
         layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
-        self._build_toolbar()
         form = QFormLayout()
         self.account = QLineEdit()
         self.to = QLineEdit()
@@ -79,6 +78,7 @@ class AutoMailWindow(QMainWindow):
         self.editor.setAcceptRichText(True)
         self.editor.setPlaceholderText("Soạn nội dung mail tại đây hoặc chọn file .eml để nạp nội dung...")
         layout.addWidget(self.editor, 1)
+        self._build_toolbar()
 
         schedule_row = QHBoxLayout()
         self.schedule_enabled = QCheckBox("Bật schedule")
@@ -97,6 +97,17 @@ class AutoMailWindow(QMainWindow):
         schedule_row.addWidget(self.interval)
         schedule_row.addStretch()
         layout.addLayout(schedule_row)
+
+        weekday_row = QHBoxLayout()
+        weekday_row.addWidget(QLabel("Gửi vào thứ"))
+        self.weekday_checks = []
+        for label, value in [("T2", 0), ("T3", 1), ("T4", 2), ("T5", 3), ("T6", 4), ("T7", 5), ("CN", 6)]:
+            check = QCheckBox(label)
+            check.setProperty("weekday", value)
+            weekday_row.addWidget(check)
+            self.weekday_checks.append(check)
+        weekday_row.addStretch()
+        layout.addLayout(weekday_row)
 
         buttons = QHBoxLayout()
         pick_eml = QPushButton("Chọn .eml và nạp nội dung")
@@ -176,6 +187,9 @@ class AutoMailWindow(QMainWindow):
         self.schedule_type.setCurrentText(schedule.get("type", "daily"))
         self.schedule_time.setText(schedule.get("time", "08:00"))
         self.interval.setValue(int(schedule.get("interval_minutes", 60)))
+        weekdays = set(schedule.get("weekdays", [0, 1, 2, 3, 4]))
+        for check in self.weekday_checks:
+            check.setChecked(int(check.property("weekday")) in weekdays)
 
     def _form_config(self) -> dict[str, Any]:
         cfg = load_config()
@@ -190,11 +204,12 @@ class AutoMailWindow(QMainWindow):
             "font_family": self.font_family.currentText(),
             "font_size": self.font_size.value(),
         })
+        selected_weekdays = [int(check.property("weekday")) for check in self.weekday_checks if check.isChecked()]
         cfg["schedule"] = {
             "enabled": self.schedule_enabled.isChecked(),
             "type": self.schedule_type.currentText(),
             "time": self.schedule_time.text().strip() or "08:00",
-            "weekdays": [0, 1, 2, 3, 4],
+            "weekdays": selected_weekdays or [0, 1, 2, 3, 4],
             "interval_minutes": self.interval.value(),
         }
         return cfg

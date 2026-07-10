@@ -27,6 +27,8 @@ Header bắt buộc: `X-AutoMail-Token: change-me` (đổi trong `config.json`).
 - `POST /scheduler/start`
 - `POST /scheduler/stop`
 
+Schedule hỗ trợ chọn kiểu `daily`, `weekly`, `interval`, giờ gửi và các ngày trong tuần (`weekdays`: T2=0 ... CN=6).
+
 Ví dụ WinForms/C# gửi mail:
 
 ```csharp
