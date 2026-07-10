@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import threading
 from pathlib import Path
@@ -13,12 +14,15 @@ from state import load_state
 
 try:
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QAction, QTextCharFormat, QTextCursor, QTextListFormat
+    from PySide6.QtGui import QAction, QColor, QTextCharFormat, QTextCursor, QTextListFormat
     from PySide6.QtWidgets import (
         QApplication,
+        QCalendarWidget,
         QCheckBox,
+        QColorDialog,
         QComboBox,
         QFileDialog,
+        QFontComboBox,
         QFormLayout,
         QHBoxLayout,
         QLabel,
@@ -27,6 +31,8 @@ try:
         QMessageBox,
         QPushButton,
         QSpinBox,
+        QTableWidget,
+        QTableWidgetItem,
         QTextEdit,
         QToolBar,
         QVBoxLayout,
@@ -44,6 +50,26 @@ def _split(value: str) -> list[str]:
     return [x.strip() for x in value.replace(",", ";").split(";") if x.strip()]
 
 
+def get_outlook_accounts() -> list[str]:
+    try:
+        import win32com.client  # type: ignore
+        outlook = win32com.client.Dispatch("Outlook.Application")
+        return [str(account.SmtpAddress) for account in outlook.Session.Accounts if str(account.SmtpAddress)]
+    except Exception:
+        return []
+
+
+MODERN_STYLE = """
+QMainWindow, QWidget { background: #f6f8fb; color: #1f2937; font-size: 10pt; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 6px; padding: 6px; }
+QPushButton { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+QPushButton:hover { background: #1d4ed8; }
+QPushButton#secondary { background: #e8eef8; color: #1f2937; }
+QToolBar { background: #edf2fb; border: 1px solid #d7deea; spacing: 6px; padding: 6px; }
+QHeaderView::section { background: #e8eef8; padding: 6px; border: 0; font-weight: 600; }
+"""
+
+
 class AutoMailWindow(QMainWindow):
     """Giao diện cấu hình mail dùng PySide6 QTextEdit + toolbar định dạng giống Outlook."""
 
@@ -52,7 +78,8 @@ class AutoMailWindow(QMainWindow):
         self.scheduler = scheduler
         self.config = load_config()
         self.setWindowTitle("AutoMail - Outlook style editor")
-        self.resize(1100, 780)
+        self.resize(1180, 820)
+        self.setStyleSheet(MODERN_STYLE)
         self._build_ui()
         self._load_to_form()
 
@@ -62,7 +89,9 @@ class AutoMailWindow(QMainWindow):
         self.setCentralWidget(root)
 
         form = QFormLayout()
-        self.account = QLineEdit()
+        self.account = QComboBox()
+        self.account.setEditable(True)
+        self.refresh_accounts()
         self.to = QLineEdit()
         self.cc = QLineEdit()
         self.bcc = QLineEdit()
@@ -71,6 +100,10 @@ class AutoMailWindow(QMainWindow):
         form.addRow("Tới", self.to)
         form.addRow("Cc", self.cc)
         form.addRow("Bcc", self.bcc)
+        import_recipients = QPushButton("Import To/Cc/Bcc")
+        import_recipients.setObjectName("secondary")
+        import_recipients.clicked.connect(self.import_recipients)
+        form.addRow("Import người nhận", import_recipients)
         form.addRow("Tiêu đề", self.subject)
         layout.addLayout(form)
 
@@ -109,6 +142,15 @@ class AutoMailWindow(QMainWindow):
         weekday_row.addStretch()
         layout.addLayout(weekday_row)
 
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(True)
+        self.calendar.selectionChanged.connect(self.add_selected_date_schedule)
+        layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
+        layout.addWidget(self.calendar)
+        self.date_schedule_table = QTableWidget(0, 3)
+        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Template/Nội dung mail"])
+        layout.addWidget(self.date_schedule_table)
+
         buttons = QHBoxLayout()
         pick_eml = QPushButton("Chọn .eml và nạp nội dung")
         pick_eml.clicked.connect(self.pick_eml)
@@ -127,9 +169,8 @@ class AutoMailWindow(QMainWindow):
     def _build_toolbar(self) -> None:
         bar = QToolBar("Định dạng văn bản", self)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
-        self.font_family = QComboBox()
-        self.font_family.addItems(["Calibri", "Arial", "Times New Roman", "Tahoma", "Verdana"])
-        self.font_family.currentTextChanged.connect(self._set_editor_font_family)
+        self.font_family = QFontComboBox()
+        self.font_family.currentFontChanged.connect(lambda font: self._set_editor_font_family(font.family()))
         self.font_size = QSpinBox()
         self.font_size.setRange(8, 48)
         self.font_size.setValue(11)
@@ -142,6 +183,8 @@ class AutoMailWindow(QMainWindow):
             ("B", lambda: self._merge_format(weight=True)),
             ("I", lambda: self.editor.setFontItalic(not self.editor.fontItalic())),
             ("U", lambda: self.editor.setFontUnderline(not self.editor.fontUnderline())),
+            ("Màu chữ", self.pick_text_color),
+            ("Màu nền", self.pick_background_color),
             ("• List", lambda: self._insert_list(QTextListFormat.Style.ListDisc)),
             ("1. List", lambda: self._insert_list(QTextListFormat.Style.ListDecimal)),
             ("Left", lambda: self.editor.setAlignment(Qt.AlignmentFlag.AlignLeft)),
@@ -175,7 +218,10 @@ class AutoMailWindow(QMainWindow):
 
     def _load_to_form(self) -> None:
         mail = self.config["mail"]
-        self.account.setText(mail.get("account", ""))
+        account = mail.get("account", "")
+        if account and self.account.findText(account) == -1:
+            self.account.addItem(account)
+        self.account.setCurrentText(account)
         self.to.setText(_join(mail.get("to")))
         self.cc.setText(_join(mail.get("cc")))
         self.bcc.setText(_join(mail.get("bcc")))
@@ -194,18 +240,19 @@ class AutoMailWindow(QMainWindow):
         weekdays = set(schedule.get("weekdays", [0, 1, 2, 3, 4]))
         for check in self.weekday_checks:
             check.setChecked(int(check.property("weekday")) in weekdays)
+        self._load_date_schedules(schedule.get("date_schedules", []))
 
     def _form_config(self) -> dict[str, Any]:
         cfg = load_config()
         cfg["mail"].update({
-            "account": self.account.text().strip(),
+            "account": self.account.currentText().strip(),
             "to": _split(self.to.text()),
             "cc": _split(self.cc.text()),
             "bcc": _split(self.bcc.text()),
             "subject": self.subject.text().strip(),
             "body": self.editor.toHtml(),
             "body_format": "html",
-            "font_family": self.font_family.currentText(),
+            "font_family": self.font_family.currentFont().family(),
             "font_size": self.font_size.value(),
         })
         selected_weekdays = [int(check.property("weekday")) for check in self.weekday_checks if check.isChecked()]
@@ -215,6 +262,7 @@ class AutoMailWindow(QMainWindow):
             "time": self.schedule_time.text().strip() or "08:00",
             "weekdays": selected_weekdays or [0, 1, 2, 3, 4],
             "interval_minutes": self.interval.value(),
+            "date_schedules": self._collect_date_schedules(),
         }
         return cfg
 
@@ -222,6 +270,78 @@ class AutoMailWindow(QMainWindow):
         self.config = self._form_config()
         save_config(self.config)
         self.statusBar().showMessage("Đã lưu config.json", 4000)
+
+    def refresh_accounts(self) -> None:
+        accounts = get_outlook_accounts()
+        self.account.clear()
+        self.account.addItem("")
+        self.account.addItems(accounts)
+
+    def pick_text_color(self) -> None:
+        color = QColorDialog.getColor(QColor("#111827"), self, "Chọn màu chữ")
+        if color.isValid():
+            self.editor.setTextColor(color)
+
+    def pick_background_color(self) -> None:
+        color = QColorDialog.getColor(QColor("#fff3bf"), self, "Chọn màu nền")
+        if color.isValid():
+            self.editor.setTextBackgroundColor(color)
+
+    def import_recipients(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import người nhận", "", "CSV/Text (*.csv *.txt);;All files (*.*)")
+        if not path:
+            return
+        to_values: list[str] = []
+        cc_values: list[str] = []
+        bcc_values: list[str] = []
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
+            sample = f.read(2048)
+            f.seek(0)
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t") if sample.strip() else csv.excel
+            reader = csv.DictReader(f, dialect=dialect)
+            fields = {name.lower() for name in (reader.fieldnames or [])}
+            if fields & {"to", "cc", "bcc"}:
+                for row in reader:
+                    to_values.extend(_split(row.get("to", "") or row.get("To", "")))
+                    cc_values.extend(_split(row.get("cc", "") or row.get("Cc", "")))
+                    bcc_values.extend(_split(row.get("bcc", "") or row.get("Bcc", "")))
+            else:
+                f.seek(0)
+                for line in f:
+                    to_values.extend(_split(line))
+        self.to.setText(_join(_split(self.to.text()) + to_values))
+        self.cc.setText(_join(_split(self.cc.text()) + cc_values))
+        self.bcc.setText(_join(_split(self.bcc.text()) + bcc_values))
+
+    def add_selected_date_schedule(self) -> None:
+        date_text = self.calendar.selectedDate().toString("yyyy-MM-dd")
+        row = self.date_schedule_table.rowCount()
+        self.date_schedule_table.insertRow(row)
+        for col, value in enumerate([date_text, self.schedule_time.text().strip() or "08:00", self.config.get("mail", {}).get("template", "")]):
+            self.date_schedule_table.setItem(row, col, QTableWidgetItem(value))
+
+    def _load_date_schedules(self, schedules: list[dict[str, Any]]) -> None:
+        self.date_schedule_table.setRowCount(0)
+        for item in schedules:
+            row = self.date_schedule_table.rowCount()
+            self.date_schedule_table.insertRow(row)
+            self.date_schedule_table.setItem(row, 0, QTableWidgetItem(str(item.get("date", ""))))
+            self.date_schedule_table.setItem(row, 1, QTableWidgetItem(str(item.get("time", "08:00"))))
+            self.date_schedule_table.setItem(row, 2, QTableWidgetItem(str(item.get("template", ""))))
+
+    def _collect_date_schedules(self) -> list[dict[str, str]]:
+        schedules = []
+        for row in range(self.date_schedule_table.rowCount()):
+            date_item = self.date_schedule_table.item(row, 0)
+            time_item = self.date_schedule_table.item(row, 1)
+            template_item = self.date_schedule_table.item(row, 2)
+            if date_item and date_item.text().strip():
+                schedules.append({
+                    "date": date_item.text().strip(),
+                    "time": time_item.text().strip() if time_item else "08:00",
+                    "template": template_item.text().strip() if template_item else "",
+                })
+        return schedules
 
     def pick_eml(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Chọn template .eml", str(Path(__file__).parent / "templates"), "Email (*.eml)")

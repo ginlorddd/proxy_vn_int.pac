@@ -51,7 +51,7 @@ def test_editor_is_created_before_toolbar_is_built() -> None:
 def test_toolbar_does_not_bind_to_editor_before_runtime() -> None:
     source = UI_PATH.read_text(encoding="utf-8")
     assert "currentTextChanged.connect(self.editor.setFontFamily)" not in source
-    assert "currentTextChanged.connect(self._set_editor_font_family)" in source
+    assert "currentFontChanged.connect" in source and "_set_editor_font_family" in source
 
 
 def test_weekday_controls_are_persisted() -> None:
@@ -59,3 +59,13 @@ def test_weekday_controls_are_persisted() -> None:
     assert "self.weekday_checks" in source
     assert "selected_weekdays" in source
     assert '"weekdays": selected_weekdays or [0, 1, 2, 3, 4]' in source
+
+
+def test_modern_editor_features_are_present() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "QFontComboBox" in source
+    assert "QColorDialog" in source
+    assert "get_outlook_accounts" in source
+    assert "import_recipients" in source
+    assert "QCalendarWidget" in source
+    assert "date_schedules" in source

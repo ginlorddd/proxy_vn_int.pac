@@ -35,10 +35,27 @@ class MailScheduler:
     def _run(self) -> None:
         while not self._stop.is_set():
             config = self.get_config()
-            if should_send_now(config.get("schedule", {}), self._last_key):
+            schedule = config.get("schedule", {})
+            date_item = matching_date_schedule(schedule, self._last_key)
+            if date_item or should_send_now(schedule, self._last_key):
                 self._last_key = datetime.now().strftime("%Y%m%d%H%M")
-                send_mail(config.get("mail", {}))
+                mail = dict(config.get("mail", {}))
+                if date_item and date_item.get("template"):
+                    mail["template"] = date_item["template"]
+                send_mail(mail)
             self._stop.wait(self.interval_seconds)
+
+
+def matching_date_schedule(schedule: dict[str, Any], last_key: str) -> dict[str, Any] | None:
+    if not schedule.get("enabled"):
+        return None
+    now = datetime.now()
+    if now.strftime("%Y%m%d%H%M") == last_key:
+        return None
+    for item in schedule.get("date_schedules", []):
+        if item.get("date") == now.strftime("%Y-%m-%d") and item.get("time", "08:00") == now.strftime("%H:%M"):
+            return item
+    return None
 
 
 def should_send_now(schedule: dict[str, Any], last_key: str) -> bool:
@@ -48,6 +65,8 @@ def should_send_now(schedule: dict[str, Any], last_key: str) -> bool:
     key = now.strftime("%Y%m%d%H%M")
     if key == last_key:
         return False
+    if matching_date_schedule(schedule, last_key):
+        return True
     typ = schedule.get("type", "daily")
     if typ == "interval":
         minutes = int(schedule.get("interval_minutes", 60))

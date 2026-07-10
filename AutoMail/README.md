@@ -27,7 +27,7 @@ Header bắt buộc: `X-AutoMail-Token: change-me` (đổi trong `config.json`).
 - `POST /scheduler/start`
 - `POST /scheduler/stop`
 
-Schedule hỗ trợ chọn kiểu `daily`, `weekly`, `interval`, giờ gửi và các ngày trong tuần (`weekdays`: T2=0 ... CN=6).
+Schedule hỗ trợ chọn kiểu `daily`, `weekly`, `interval`, giờ gửi, các ngày trong tuần (`weekdays`: T2=0 ... CN=6) và danh sách ngày cụ thể `date_schedules` để chọn ngày nào gửi nội dung/template nào.
 
 Ví dụ WinForms/C# gửi mail:
 
@@ -40,5 +40,5 @@ await client.PostAsync("http://127.0.0.1:8765/send", new StringContent(json, Enc
 
 ## Lưu ý
 
-- Giao diện rich text cần `PySide6`; gửi mail cần Windows, Microsoft Outlook đã đăng nhập, và package `pywin32`.
+- Giao diện rich text cần `PySide6`; gửi mail và lấy danh sách From/account từ Outlook cần Windows, Microsoft Outlook đã đăng nhập, và package `pywin32`.
 - Trên Linux/macOS vẫn có thể test đọc config/API, nhưng không gửi được Outlook COM.
