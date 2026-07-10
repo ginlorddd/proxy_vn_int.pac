@@ -33,6 +33,8 @@ try:
         QMainWindow,
         QMessageBox,
         QPushButton,
+        QScrollArea,
+        QSizePolicy,
         QSpinBox,
         QTableWidget,
         QTableWidgetItem,
@@ -173,11 +175,15 @@ class AutoMailWindow(QMainWindow):
         self._load_to_form()
 
     def _build_ui(self) -> None:
-        root = QWidget(self)
+        viewport = QScrollArea(self)
+        viewport.setWidgetResizable(True)
+        viewport.setFrameShape(QFrame.Shape.NoFrame)
+        root = QWidget(viewport)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
-        self.setCentralWidget(root)
+        viewport.setWidget(root)
+        self.setCentralWidget(viewport)
 
         hero = QFrame()
         hero.setObjectName("hero")
@@ -205,18 +211,25 @@ class AutoMailWindow(QMainWindow):
         self.account = QComboBox()
         self.account.setEditable(False)
         self.account.setPlaceholderText("Chọn account Outlook đã đăng nhập")
+        self.account.setMinimumWidth(360)
+        self.account.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.refresh_accounts()
         self.to = QLineEdit()
         self.cc = QLineEdit()
         self.bcc = QLineEdit()
         self.subject = QLineEdit()
-        account_row = QHBoxLayout()
-        account_row.addWidget(self.account)
+        account_widget = QWidget()
+        account_widget.setObjectName("inlineActions")
+        account_row = QHBoxLayout(account_widget)
+        account_row.setContentsMargins(0, 0, 0, 0)
+        account_row.setSpacing(8)
+        account_row.addWidget(self.account, 1)
         refresh_accounts = QPushButton("Tải account Outlook")
         refresh_accounts.setObjectName("secondary")
+        refresh_accounts.setMinimumWidth(150)
         refresh_accounts.clicked.connect(self.refresh_accounts)
         account_row.addWidget(refresh_accounts)
-        form.addRow("From/account", account_row)
+        form.addRow("From/account", account_widget)
         form.addRow("Tới", self.to)
         form.addRow("Cc", self.cc)
         form.addRow("Bcc", self.bcc)
@@ -281,6 +294,7 @@ class AutoMailWindow(QMainWindow):
         layout.addWidget(schedule_card)
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(10)
         pick_eml = QPushButton("Chọn .eml và nạp nội dung")
         pick_eml.clicked.connect(self.pick_eml)
         save = QPushButton("Lưu config")
@@ -290,7 +304,11 @@ class AutoMailWindow(QMainWindow):
         send.clicked.connect(self.send_test)
         state = QPushButton("Xem trạng thái")
         state.clicked.connect(self.show_state)
-        for btn in (pick_eml, save, send, state):
+        import_recipients_quick = QPushButton("Import To/Cc/Bcc")
+        import_recipients_quick.setObjectName("secondary")
+        import_recipients_quick.clicked.connect(self.import_recipients)
+        for btn in (pick_eml, import_recipients_quick, save, send, state):
+            btn.setMinimumHeight(34)
             buttons.addWidget(btn)
         buttons.addStretch()
         layout.addLayout(buttons)

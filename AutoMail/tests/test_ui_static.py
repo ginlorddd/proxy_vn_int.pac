@@ -87,3 +87,12 @@ def test_outlook_accounts_use_count_item_iteration() -> None:
     assert "def _iter_com_collection" in source
     assert "collection.Item(index)" in source
     assert "for account in _iter_com_collection(session.Accounts)" in source
+
+
+def test_ui_keeps_action_buttons_visible_in_scrollable_layout() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "QScrollArea" in source
+    assert "viewport.setWidgetResizable(True)" in source
+    assert "account_widget = QWidget()" in source
+    assert "refresh_accounts.setMinimumWidth(150)" in source
+    assert "import_recipients_quick = QPushButton(\"Import To/Cc/Bcc\")" in source
