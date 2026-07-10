@@ -40,5 +40,5 @@ await client.PostAsync("http://127.0.0.1:8765/send", new StringContent(json, Enc
 
 ## Lưu ý
 
-- Giao diện rich text cần `PySide6`; gửi mail và lấy danh sách From/account từ Outlook cần Windows, Microsoft Outlook đã đăng nhập, và package `pywin32`.
+- Giao diện rich text cần `PySide6`; gửi mail và lấy danh sách From/account từ Outlook cần Windows, Microsoft Outlook đã đăng nhập, và package `pywin32`. Nếu dùng Exchange, app sẽ thử lấy `PrimarySmtpAddress` từ AddressEntry khi `SmtpAddress` trống.
 - Trên Linux/macOS vẫn có thể test đọc config/API, nhưng không gửi được Outlook COM.

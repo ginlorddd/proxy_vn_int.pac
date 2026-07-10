@@ -66,6 +66,8 @@ def test_modern_editor_features_are_present() -> None:
     assert "QFontComboBox" in source
     assert "QColorDialog" in source
     assert "get_outlook_accounts" in source
+    assert "PrimarySmtpAddress" in source
+    assert "Tải account Outlook" in source
     assert "import_recipients" in source
     assert "QCalendarWidget" in source
     assert "date_schedules" in source

@@ -18,6 +18,13 @@ def _list(value: Any) -> list[str]:
     return [str(x).strip() for x in value if str(x).strip()]
 
 
+def _extract_email(value: str) -> str:
+    text = value.strip()
+    if "<" in text and ">" in text:
+        return text.split("<", 1)[1].split(">", 1)[0].strip()
+    return text
+
+
 def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
     """Gửi email qua Microsoft Outlook desktop bằng COM (Windows + pywin32)."""
     try:
@@ -37,8 +44,11 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
         outlook = win32com.client.Dispatch("Outlook.Application")
         mail = outlook.CreateItem(0)
         if cfg.get("account"):
+            wanted_account = _extract_email(str(cfg["account"])).lower()
             for account in outlook.Session.Accounts:
-                if str(account.SmtpAddress).lower() == str(cfg["account"]).lower():
+                smtp = str(getattr(account, "SmtpAddress", "") or "").lower()
+                display = str(getattr(account, "DisplayName", "") or "").lower()
+                if wanted_account in {smtp, display}:
                     mail.SendUsingAccount = account
                     break
         mail.To = ";".join(_list(cfg.get("to")))

@@ -50,11 +50,50 @@ def _split(value: str) -> list[str]:
     return [x.strip() for x in value.replace(",", ";").split(";") if x.strip()]
 
 
-def get_outlook_accounts() -> list[str]:
+def _extract_email(value: str) -> str:
+    text = value.strip()
+    if "<" in text and ">" in text:
+        return text.split("<", 1)[1].split(">", 1)[0].strip()
+    return text
+
+
+def _account_smtp(account: Any) -> str:
+    smtp = str(getattr(account, "SmtpAddress", "") or "").strip()
+    if smtp:
+        return smtp
     try:
+        user = account.CurrentUser
+        entry = user.AddressEntry
+        if str(entry.Type).upper() == "EX":
+            exchange_user = entry.GetExchangeUser()
+            smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
+            if smtp:
+                return smtp
+        return str(getattr(entry, "Address", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def get_outlook_accounts() -> list[str]:
+    """Đọc account Outlook đã đăng nhập, hỗ trợ cả Exchange account không có SmtpAddress trực tiếp."""
+    try:
+        import pythoncom  # type: ignore
         import win32com.client  # type: ignore
-        outlook = win32com.client.Dispatch("Outlook.Application")
-        return [str(account.SmtpAddress) for account in outlook.Session.Accounts if str(account.SmtpAddress)]
+
+        pythoncom.CoInitialize()
+        try:
+            outlook = win32com.client.gencache.EnsureDispatch("Outlook.Application")
+        except Exception:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+        session = outlook.Session or outlook.GetNamespace("MAPI")
+        accounts: list[str] = []
+        for account in session.Accounts:
+            smtp = _account_smtp(account)
+            display = str(getattr(account, "DisplayName", "") or smtp).strip()
+            value = f"{display} <{smtp}>" if smtp and display and display.lower() != smtp.lower() else smtp or display
+            if value and value not in accounts:
+                accounts.append(value)
+        return accounts
     except Exception:
         return []
 
@@ -96,7 +135,13 @@ class AutoMailWindow(QMainWindow):
         self.cc = QLineEdit()
         self.bcc = QLineEdit()
         self.subject = QLineEdit()
-        form.addRow("From/account", self.account)
+        account_row = QHBoxLayout()
+        account_row.addWidget(self.account)
+        refresh_accounts = QPushButton("Tải account Outlook")
+        refresh_accounts.setObjectName("secondary")
+        refresh_accounts.clicked.connect(self.refresh_accounts)
+        account_row.addWidget(refresh_accounts)
+        form.addRow("From/account", account_row)
         form.addRow("Tới", self.to)
         form.addRow("Cc", self.cc)
         form.addRow("Bcc", self.bcc)
@@ -245,7 +290,7 @@ class AutoMailWindow(QMainWindow):
     def _form_config(self) -> dict[str, Any]:
         cfg = load_config()
         cfg["mail"].update({
-            "account": self.account.currentText().strip(),
+            "account": _extract_email(self.account.currentText()),
             "to": _split(self.to.text()),
             "cc": _split(self.cc.text()),
             "bcc": _split(self.bcc.text()),
@@ -272,10 +317,17 @@ class AutoMailWindow(QMainWindow):
         self.statusBar().showMessage("Đã lưu config.json", 4000)
 
     def refresh_accounts(self) -> None:
+        current = self.account.currentText().strip() if hasattr(self, "account") else ""
         accounts = get_outlook_accounts()
         self.account.clear()
         self.account.addItem("")
         self.account.addItems(accounts)
+        if current:
+            self.account.setCurrentText(current)
+        elif accounts:
+            self.account.setCurrentIndex(1)
+        if hasattr(self, "statusBar"):
+            self.statusBar().showMessage(f"Đã tải {len(accounts)} account Outlook", 4000)
 
     def pick_text_color(self) -> None:
         color = QColorDialog.getColor(QColor("#111827"), self, "Chọn màu chữ")
