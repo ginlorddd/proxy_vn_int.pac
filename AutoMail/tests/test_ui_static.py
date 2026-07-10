@@ -71,3 +71,19 @@ def test_modern_editor_features_are_present() -> None:
     assert "import_recipients" in source
     assert "QCalendarWidget" in source
     assert "date_schedules" in source
+
+
+def test_from_account_is_non_editable_outlook_dropdown() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "self.account = QComboBox()" in source
+    assert "self.account.setEditable(False)" in source
+    assert "self.account.addItem(\"Chọn account Outlook đã đăng nhập\")" in source
+    assert "self.account.addItem(account, _extract_email(account))" in source
+    assert "currentData()" in source
+
+
+def test_outlook_accounts_use_count_item_iteration() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "def _iter_com_collection" in source
+    assert "collection.Item(index)" in source
+    assert "for account in _iter_com_collection(session.Accounts)" in source

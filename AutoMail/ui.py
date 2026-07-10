@@ -85,6 +85,16 @@ def _add_account_value(accounts: list[str], display: str, smtp: str) -> None:
         accounts.append(value)
 
 
+def _iter_com_collection(collection: Any) -> list[Any]:
+    try:
+        return [collection.Item(index) for index in range(1, int(collection.Count) + 1)]
+    except Exception:
+        try:
+            return list(collection)
+        except Exception:
+            return []
+
+
 def get_outlook_accounts() -> list[str]:
     """Đọc đầy đủ account Outlook đã đăng nhập từ MAPI, Exchange và CurrentUser."""
     pythoncom = None
@@ -101,7 +111,7 @@ def get_outlook_accounts() -> list[str]:
         session = outlook.Session or outlook.GetNamespace("MAPI")
         accounts: list[str] = []
 
-        for account in session.Accounts:
+        for account in _iter_com_collection(session.Accounts):
             smtp = _account_smtp(account)
             display = str(getattr(account, "DisplayName", "") or smtp).strip()
             _add_account_value(accounts, display, smtp)
@@ -193,7 +203,8 @@ class AutoMailWindow(QMainWindow):
         form.setHorizontalSpacing(14)
         form.setVerticalSpacing(10)
         self.account = QComboBox()
-        self.account.setEditable(True)
+        self.account.setEditable(False)
+        self.account.setPlaceholderText("Chọn account Outlook đã đăng nhập")
         self.refresh_accounts()
         self.to = QLineEdit()
         self.cc = QLineEdit()
@@ -337,10 +348,17 @@ class AutoMailWindow(QMainWindow):
 
     def _load_to_form(self) -> None:
         mail = self.config["mail"]
-        account = mail.get("account", "")
-        if account and self.account.findText(account) == -1:
-            self.account.addItem(account)
-        self.account.setCurrentText(account)
+        account = str(mail.get("account", "") or "")
+        if account:
+            match = self.account.findData(account)
+            if match == -1:
+                match = self.account.findText(account)
+            if match == -1:
+                self.account.addItem(account, _extract_email(account))
+                match = self.account.count() - 1
+            self.account.setCurrentIndex(match)
+        else:
+            self.account.setCurrentIndex(0)
         self.to.setText(_join(mail.get("to")))
         self.cc.setText(_join(mail.get("cc")))
         self.bcc.setText(_join(mail.get("bcc")))
@@ -364,7 +382,7 @@ class AutoMailWindow(QMainWindow):
     def _form_config(self) -> dict[str, Any]:
         cfg = load_config()
         cfg["mail"].update({
-            "account": _extract_email(self.account.currentText()),
+            "account": "" if self.account.currentIndex() <= 0 else str(self.account.currentData() or _extract_email(self.account.currentText())),
             "to": _split(self.to.text()),
             "cc": _split(self.cc.text()),
             "bcc": _split(self.bcc.text()),
@@ -391,13 +409,26 @@ class AutoMailWindow(QMainWindow):
         self.statusBar().showMessage("Đã lưu config.json", 4000)
 
     def refresh_accounts(self) -> None:
-        current = self.account.currentText().strip() if hasattr(self, "account") else ""
+        current = ""
+        if hasattr(self, "account") and self.account.currentIndex() > 0:
+            current = str(self.account.currentData() or self.account.currentText()).strip()
         accounts = get_outlook_accounts()
         self.account.clear()
-        self.account.addItem("")
-        self.account.addItems(accounts)
+        self.account.addItem("Chọn account Outlook đã đăng nhập")
+        self.account.setItemData(0, "", Qt.ItemDataRole.UserRole)
+        for account in accounts:
+            self.account.addItem(account, _extract_email(account))
         if current:
-            self.account.setCurrentText(current)
+            match = self.account.findData(current)
+            if match == -1:
+                match = self.account.findText(current)
+            if match == -1:
+                extracted = _extract_email(current)
+                match = next((index for index in range(self.account.count()) if self.account.itemData(index) == extracted), -1)
+            if match == -1:
+                self.account.addItem(current, _extract_email(current))
+                match = self.account.count() - 1
+            self.account.setCurrentIndex(match)
         elif accounts:
             self.account.setCurrentIndex(1)
         if hasattr(self, "account_count"):

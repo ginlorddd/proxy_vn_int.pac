@@ -41,6 +41,7 @@ def _account_smtp(account: Any) -> str:
     except Exception:
         return ""
 
+
 def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
     """Gửi email qua Microsoft Outlook desktop bằng COM (Windows + pywin32)."""
     try:
@@ -51,7 +52,7 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
 
         cfg = dict(mail_config)
         template = cfg.get("template")
-        if template:
+        if template and "body" not in cfg:
             data = read_eml(template)
             cfg["subject"] = cfg.get("subject") or data["subject"]
             cfg["body"] = data["body"]
