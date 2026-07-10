@@ -93,12 +93,9 @@ def main() -> None:
     if args.no_ui:
         threading.Event().wait()
     else:
-        import tkinter as tk
-        from ui import AutoMailUI
-        root = tk.Tk()
-        AutoMailUI(root, scheduler)
+        from ui import run_ui
         try:
-            root.mainloop()
+            run_ui(scheduler)
         finally:
             scheduler.stop()
             api_server.shutdown()

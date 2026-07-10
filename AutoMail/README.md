@@ -1,6 +1,6 @@
 # AutoMail
 
-Ứng dụng Python gửi mail tự động qua Microsoft Outlook desktop, có giao diện cấu hình bằng Tkinter, scheduler và HTTP API để app khác (ví dụ WinForms) truyền dữ liệu gửi mail.
+Ứng dụng Python gửi mail tự động qua Microsoft Outlook desktop, có giao diện PySide6 với trình soạn thảo rich text giống Outlook, scheduler và HTTP API để app khác (ví dụ WinForms) truyền dữ liệu gửi mail.
 
 ## Chạy
 
@@ -38,5 +38,5 @@ await client.PostAsync("http://127.0.0.1:8765/send", new StringContent(json, Enc
 
 ## Lưu ý
 
-- Gửi mail cần Windows, Microsoft Outlook đã đăng nhập, và package `pywin32`.
+- Giao diện rich text cần `PySide6`; gửi mail cần Windows, Microsoft Outlook đã đăng nhập, và package `pywin32`.
 - Trên Linux/macOS vẫn có thể test đọc config/API, nhưng không gửi được Outlook COM.
