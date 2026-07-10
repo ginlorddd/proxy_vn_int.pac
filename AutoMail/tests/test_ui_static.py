@@ -96,3 +96,14 @@ def test_ui_keeps_action_buttons_visible_in_scrollable_layout() -> None:
     assert "account_widget = QWidget()" in source
     assert "refresh_accounts.setMinimumWidth(150)" in source
     assert "import_recipients_quick = QPushButton(\"Import To/Cc/Bcc\")" in source
+
+
+def test_editor_gets_priority_over_compact_sections() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "editor_card.setMinimumHeight(500)" in source
+    assert "self.editor.setMinimumHeight(440)" in source
+    assert "layout.addWidget(editor_card, 5)" in source
+    assert "mail_card.setMaximumHeight(250)" in source
+    assert "schedule_card.setMaximumHeight(390)" in source
+    assert "self.calendar.setMaximumHeight(170)" in source
+    assert "self.date_schedule_table.setMaximumHeight(110)" in source
