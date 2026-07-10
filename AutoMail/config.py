@@ -24,6 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "attachments": [],
         "template": ""
     },
+    "templates": [],
     "schedule": {"enabled": False, "type": "daily", "time": "08:00", "weekdays": [0,1,2,3,4], "interval_minutes": 60, "date_schedules": []},
     "send_on_startup": False
 }

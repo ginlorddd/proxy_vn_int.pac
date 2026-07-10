@@ -25,6 +25,16 @@ def _extract_email(value: str) -> str:
     return text
 
 
+def _iter_com_collection(collection: Any) -> list[Any]:
+    try:
+        return [collection.Item(index) for index in range(1, int(collection.Count) + 1)]
+    except Exception:
+        try:
+            return list(collection)
+        except Exception:
+            return []
+
+
 def _account_smtp(account: Any) -> str:
     smtp = str(getattr(account, "SmtpAddress", "") or "").strip()
     if smtp:
@@ -62,12 +72,17 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
         mail = outlook.CreateItem(0)
         if cfg.get("account"):
             wanted_account = _extract_email(str(cfg["account"])).lower()
-            for account in outlook.Session.Accounts:
+            selected_account = None
+            for account in _iter_com_collection(outlook.Session.Accounts):
                 smtp = _account_smtp(account).lower()
                 display = str(getattr(account, "DisplayName", "") or "").lower()
-                if wanted_account in {smtp, display} or wanted_account in f"{display} <{smtp}>":
-                    mail.SendUsingAccount = account
+                candidates = {smtp, display, f"{display} <{smtp}>"}
+                if wanted_account in candidates or wanted_account == _extract_email(f"{display} <{smtp}>").lower():
+                    selected_account = account
                     break
+            if selected_account is None:
+                raise RuntimeError(f"Không tìm thấy Outlook account đã chọn: {cfg['account']}")
+            mail.SendUsingAccount = selected_account
         mail.To = ";".join(_list(cfg.get("to")))
         mail.CC = ";".join(_list(cfg.get("cc")))
         mail.BCC = ";".join(_list(cfg.get("bcc")))

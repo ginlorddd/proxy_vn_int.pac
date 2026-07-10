@@ -175,6 +175,7 @@ class AutoMailWindow(QMainWindow):
         super().__init__()
         self.scheduler = scheduler
         self.config = load_config()
+        self._marked_schedule_dates: set[str] = set()
         self.setWindowTitle("AutoMail - Outlook style editor")
         self.resize(1180, 820)
         self.setStyleSheet(MODERN_STYLE)
@@ -305,9 +306,19 @@ class AutoMailWindow(QMainWindow):
         self.calendar = QCalendarWidget()
         self.calendar.setMaximumHeight(130)
         self.calendar.setGridVisible(True)
-        self.calendar.selectionChanged.connect(self.add_selected_date_schedule)
-        schedule_layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
+        self.calendar.selectionChanged.connect(self.show_selected_date_info)
+        schedule_layout.addWidget(QLabel("Lịch gửi master: chọn ngày để xem/thêm cấu hình gửi mail tự động:"))
         schedule_layout.addWidget(self.calendar)
+        template_row = QHBoxLayout()
+        template_row.addWidget(QLabel("Template có sẵn"))
+        self.template_combo = QComboBox()
+        self.template_combo.setMinimumWidth(360)
+        template_row.addWidget(self.template_combo, 1)
+        add_library_template = QPushButton("Thêm template có sẵn")
+        add_library_template.setObjectName("secondary")
+        add_library_template.clicked.connect(self.add_template_library_item)
+        template_row.addWidget(add_library_template)
+        schedule_layout.addLayout(template_row)
         self.date_schedule_table = QTableWidget(0, 7)
         self.date_schedule_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.date_schedule_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -317,12 +328,16 @@ class AutoMailWindow(QMainWindow):
         self.date_schedule_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         schedule_layout.addWidget(self.date_schedule_table)
         schedule_buttons = QHBoxLayout()
+        new_config = QPushButton("Thêm mới cấu hình ngày")
+        new_config.setObjectName("secondary")
+        new_config.clicked.connect(self.new_day_mail_config)
         add_template = QPushButton("Thêm template vào lịch")
         add_template.setObjectName("secondary")
         add_template.clicked.connect(self.add_template_schedule)
         delete_rows = QPushButton("Xóa dòng đã chọn")
         delete_rows.setObjectName("secondary")
         delete_rows.clicked.connect(self.delete_selected_date_schedules)
+        schedule_buttons.addWidget(new_config)
         schedule_buttons.addWidget(add_template)
         schedule_buttons.addWidget(delete_rows)
         schedule_buttons.addStretch()
@@ -432,7 +447,9 @@ class AutoMailWindow(QMainWindow):
         weekdays = set(schedule.get("weekdays", [0, 1, 2, 3, 4]))
         for check in self.weekday_checks:
             check.setChecked(int(check.property("weekday")) in weekdays)
+        self.refresh_template_combo()
         self._load_date_schedules(schedule.get("date_schedules", []))
+        self.refresh_calendar_markers()
 
     def _form_config(self) -> dict[str, Any]:
         cfg = load_config()
@@ -448,6 +465,7 @@ class AutoMailWindow(QMainWindow):
             "font_size": self.font_size.value(),
         })
         selected_weekdays = [int(check.property("weekday")) for check in self.weekday_checks if check.isChecked()]
+        cfg["templates"] = [self.template_combo.itemData(index) or self.template_combo.itemText(index) for index in range(self.template_combo.count()) if index > 0]
         cfg["schedule"] = {
             "enabled": self.schedule_enabled.isChecked(),
             "type": self.schedule_type.currentText(),
@@ -527,6 +545,74 @@ class AutoMailWindow(QMainWindow):
         self.cc.setText(_join(_split(self.cc.text()) + cc_values))
         self.bcc.setText(_join(_split(self.bcc.text()) + bcc_values))
 
+    def refresh_template_combo(self) -> None:
+        if not hasattr(self, "template_combo"):
+            return
+        current = self.template_combo.currentData() or self.template_combo.currentText()
+        self.template_combo.clear()
+        self.template_combo.addItem("Không dùng template có sẵn", "")
+        templates = list(dict.fromkeys([*self.config.get("templates", []), self.config.get("mail", {}).get("template", "")]))
+        for template in templates:
+            if template:
+                self.template_combo.addItem(Path(template).name, template)
+        if current:
+            index = self.template_combo.findData(current)
+            if index >= 0:
+                self.template_combo.setCurrentIndex(index)
+
+    def add_template_library_item(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Thêm template có sẵn", str(Path(__file__).parent / "templates"), "Email (*.eml)")
+        if not path:
+            return
+        cfg = load_config()
+        templates = list(dict.fromkeys([*cfg.get("templates", []), path]))
+        cfg["templates"] = templates
+        save_config(cfg)
+        self.config = cfg
+        self.refresh_template_combo()
+        self.template_combo.setCurrentIndex(self.template_combo.findData(path))
+        self.statusBar().showMessage(f"Đã thêm template {Path(path).name}", 4000)
+
+    def show_selected_date_info(self) -> None:
+        self.refresh_calendar_markers()
+        date_text = self.calendar.selectedDate().toString("yyyy-MM-dd")
+        events = [item for item in self._collect_date_schedules() if item.get("date") == date_text]
+        if events:
+            summary = " | ".join(f"{item.get('time')} {Path(item.get('template', '')).name or item.get('subject', 'Mail')}" for item in events)
+            self.calendar.setToolTip(summary)
+            self.statusBar().showMessage(f"{date_text}: {summary}", 6000)
+        else:
+            self.calendar.setToolTip("Không có lịch gửi cho ngày này")
+
+    def refresh_calendar_markers(self) -> None:
+        default_format = QTextCharFormat()
+        for date_text in self._marked_schedule_dates:
+            self.calendar.setDateTextFormat(self.calendar.selectedDate().fromString(date_text, "yyyy-MM-dd"), default_format)
+        self._marked_schedule_dates.clear()
+        marker = QTextCharFormat()
+        marker.setBackground(QColor("#dbeafe"))
+        marker.setForeground(QColor("#1d4ed8"))
+        marker.setFontWeight(700)
+        for item in self._collect_date_schedules():
+            date_text = item.get("date", "")
+            if date_text:
+                self.calendar.setDateTextFormat(self.calendar.selectedDate().fromString(date_text, "yyyy-MM-dd"), marker)
+                self._marked_schedule_dates.add(date_text)
+
+    def new_day_mail_config(self) -> None:
+        self.to.clear()
+        self.cc.clear()
+        self.bcc.clear()
+        self.subject.clear()
+        self.editor.clear()
+        self.template_combo.setCurrentIndex(0)
+        self._insert_schedule_row(
+            date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
+            time=self.schedule_time.text().strip() or "08:00",
+            repeat="once",
+        )
+        self.refresh_calendar_markers()
+
     def delete_selected_date_schedules(self) -> None:
         selected_rows = sorted({index.row() for index in self.date_schedule_table.selectedIndexes()}, reverse=True)
         if not selected_rows and self.date_schedule_table.currentRow() >= 0:
@@ -534,6 +620,7 @@ class AutoMailWindow(QMainWindow):
         for row in selected_rows:
             self.date_schedule_table.removeRow(row)
         if selected_rows:
+            self.refresh_calendar_markers()
             self.statusBar().showMessage(f"Đã xóa {len(selected_rows)} dòng lịch", 4000)
 
     def _insert_schedule_row(
@@ -562,9 +649,12 @@ class AutoMailWindow(QMainWindow):
             cc=self.cc.text(),
             bcc=self.bcc.text(),
         )
+        self.refresh_calendar_markers()
 
     def add_template_schedule(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Thêm template vào lịch", str(Path(__file__).parent / "templates"), "Email (*.eml)")
+        path = str(self.template_combo.currentData() or "") if hasattr(self, "template_combo") else ""
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(self, "Thêm template vào lịch", str(Path(__file__).parent / "templates"), "Email (*.eml)")
         if not path:
             return
         self._insert_schedule_row(
@@ -576,6 +666,7 @@ class AutoMailWindow(QMainWindow):
             cc=self.cc.text(),
             bcc=self.bcc.text(),
         )
+        self.refresh_calendar_markers()
 
     def _load_date_schedules(self, schedules: list[dict[str, Any]]) -> None:
         self.date_schedule_table.setRowCount(0)

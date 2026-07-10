@@ -129,3 +129,15 @@ def test_schedule_rows_can_be_deleted() -> None:
     assert "Xóa dòng đã chọn" in source
     assert "def delete_selected_date_schedules" in source
     assert "self.date_schedule_table.removeRow(row)" in source
+
+
+def test_master_calendar_template_library_and_new_config_flow() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "Lịch gửi master" in source
+    assert "self.calendar.selectionChanged.connect(self.show_selected_date_info)" in source
+    assert "self.template_combo = QComboBox()" in source
+    assert "Thêm template có sẵn" in source
+    assert "def add_template_library_item" in source
+    assert "def new_day_mail_config" in source
+    assert "self.to.clear()" in source and "self.editor.clear()" in source
+    assert "refresh_calendar_markers" in source
