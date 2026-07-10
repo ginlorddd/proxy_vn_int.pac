@@ -143,14 +143,16 @@ def get_outlook_accounts() -> list[str]:
 
 
 MODERN_STYLE = """
-QMainWindow, QWidget { background: #f3f6fb; color: #111827; font-family: Segoe UI, Arial; font-size: 10pt; }
+QMainWindow { background: #f3f6fb; }
+QWidget { color: #111827; font-family: Segoe UI, Arial; font-size: 10pt; }
+QLabel { background: transparent; color: #111827; }
 QGroupBox#card { background: #ffffff; border: 1px solid #dbe3ef; border-radius: 14px; margin-top: 14px; padding: 16px; font-weight: 700; }
 QGroupBox#card::title { subcontrol-origin: margin; left: 16px; padding: 0 8px; color: #1d4ed8; }
 QFrame#hero { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #1d4ed8, stop:1 #06b6d4); border-radius: 18px; }
 QLabel#heroTitle { color: white; font-size: 22pt; font-weight: 800; }
 QLabel#heroSubtitle { color: #e0f2fe; font-size: 10.5pt; }
 QLabel#pill { background: rgba(255,255,255,0.20); color: white; border-radius: 10px; padding: 6px 10px; font-weight: 700; }
-QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 9px; padding: 8px; selection-background-color: #bfdbfe; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 9px; padding: 5px 8px; selection-background-color: #bfdbfe; }
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #2563eb; }
 QPushButton { background: #2563eb; color: white; border: none; border-radius: 9px; padding: 9px 14px; font-weight: 700; }
 QPushButton:hover { background: #1d4ed8; }
@@ -209,11 +211,11 @@ class AutoMailWindow(QMainWindow):
 
         mail_card = QGroupBox("Thông tin gửi mail")
         mail_card.setObjectName("card")
-        mail_card.setMaximumHeight(250)
+        mail_card.setMaximumHeight(310)
         form = QFormLayout(mail_card)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(10)
+        form.setVerticalSpacing(8)
         self.account = QComboBox()
         self.account.setEditable(False)
         self.account.setPlaceholderText("Chọn account Outlook đã đăng nhập")
@@ -224,6 +226,8 @@ class AutoMailWindow(QMainWindow):
         self.cc = QLineEdit()
         self.bcc = QLineEdit()
         self.subject = QLineEdit()
+        for field in (self.account, self.to, self.cc, self.bcc, self.subject):
+            field.setMinimumHeight(34)
         account_widget = QWidget()
         account_widget.setObjectName("inlineActions")
         account_row = QHBoxLayout(account_widget)
@@ -262,7 +266,7 @@ class AutoMailWindow(QMainWindow):
 
         schedule_card = QGroupBox("Lịch gửi")
         schedule_card.setObjectName("card")
-        schedule_card.setMaximumHeight(390)
+        schedule_card.setMaximumHeight(500)
         schedule_layout = QVBoxLayout(schedule_card)
         schedule_row = QHBoxLayout()
         self.schedule_enabled = QCheckBox("Bật schedule")
@@ -294,13 +298,14 @@ class AutoMailWindow(QMainWindow):
         schedule_layout.addLayout(weekday_row)
 
         self.calendar = QCalendarWidget()
-        self.calendar.setMaximumHeight(170)
+        self.calendar.setMaximumHeight(130)
         self.calendar.setGridVisible(True)
         self.calendar.selectionChanged.connect(self.add_selected_date_schedule)
         schedule_layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
         schedule_layout.addWidget(self.calendar)
         self.date_schedule_table = QTableWidget(0, 3)
-        self.date_schedule_table.setMaximumHeight(110)
+        self.date_schedule_table.setMinimumHeight(120)
+        self.date_schedule_table.setMaximumHeight(150)
         self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Template/Nội dung mail"])
         self.date_schedule_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         schedule_layout.addWidget(self.date_schedule_table)

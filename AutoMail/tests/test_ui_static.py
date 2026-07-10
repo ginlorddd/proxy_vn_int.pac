@@ -103,7 +103,8 @@ def test_editor_gets_priority_over_compact_sections() -> None:
     assert "editor_card.setMinimumHeight(500)" in source
     assert "self.editor.setMinimumHeight(440)" in source
     assert "layout.addWidget(editor_card, 5)" in source
-    assert "mail_card.setMaximumHeight(250)" in source
-    assert "schedule_card.setMaximumHeight(390)" in source
-    assert "self.calendar.setMaximumHeight(170)" in source
-    assert "self.date_schedule_table.setMaximumHeight(110)" in source
+    assert "mail_card.setMaximumHeight(310)" in source
+    assert "schedule_card.setMaximumHeight(500)" in source
+    assert "self.calendar.setMaximumHeight(130)" in source
+    assert "self.date_schedule_table.setMinimumHeight(120)" in source
+    assert "self.date_schedule_table.setMaximumHeight(150)" in source
