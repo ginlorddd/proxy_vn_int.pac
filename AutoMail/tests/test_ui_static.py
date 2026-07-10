@@ -119,3 +119,13 @@ def test_schedule_supports_multiple_templates_repeats_and_recipients() -> None:
     assert 'def add_template_schedule' in source
     assert '"repeat": values[2] or "once"' in source
     assert '"to": _split(values[4])' in source
+
+
+def test_schedule_rows_can_be_deleted() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "QAbstractItemView" in source
+    assert "setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)" in source
+    assert "setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)" in source
+    assert "Xóa dòng đã chọn" in source
+    assert "def delete_selected_date_schedules" in source
+    assert "self.date_schedule_table.removeRow(row)" in source

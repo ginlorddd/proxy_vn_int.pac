@@ -16,6 +16,7 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QAction, QColor, QTextCharFormat, QTextCursor, QTextListFormat
     from PySide6.QtWidgets import (
+        QAbstractItemView,
         QApplication,
         QCalendarWidget,
         QCheckBox,
@@ -308,6 +309,8 @@ class AutoMailWindow(QMainWindow):
         schedule_layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
         schedule_layout.addWidget(self.calendar)
         self.date_schedule_table = QTableWidget(0, 7)
+        self.date_schedule_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.date_schedule_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.date_schedule_table.setMinimumHeight(150)
         self.date_schedule_table.setMaximumHeight(190)
         self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Lặp", "Template/Nội dung mail", "To", "Cc", "Bcc"])
@@ -317,7 +320,11 @@ class AutoMailWindow(QMainWindow):
         add_template = QPushButton("Thêm template vào lịch")
         add_template.setObjectName("secondary")
         add_template.clicked.connect(self.add_template_schedule)
+        delete_rows = QPushButton("Xóa dòng đã chọn")
+        delete_rows.setObjectName("secondary")
+        delete_rows.clicked.connect(self.delete_selected_date_schedules)
         schedule_buttons.addWidget(add_template)
+        schedule_buttons.addWidget(delete_rows)
         schedule_buttons.addStretch()
         schedule_layout.addLayout(schedule_buttons)
         layout.addWidget(schedule_card)
@@ -519,6 +526,15 @@ class AutoMailWindow(QMainWindow):
         self.to.setText(_join(_split(self.to.text()) + to_values))
         self.cc.setText(_join(_split(self.cc.text()) + cc_values))
         self.bcc.setText(_join(_split(self.bcc.text()) + bcc_values))
+
+    def delete_selected_date_schedules(self) -> None:
+        selected_rows = sorted({index.row() for index in self.date_schedule_table.selectedIndexes()}, reverse=True)
+        if not selected_rows and self.date_schedule_table.currentRow() >= 0:
+            selected_rows = [self.date_schedule_table.currentRow()]
+        for row in selected_rows:
+            self.date_schedule_table.removeRow(row)
+        if selected_rows:
+            self.statusBar().showMessage(f"Đã xóa {len(selected_rows)} dòng lịch", 4000)
 
     def _insert_schedule_row(
         self,
