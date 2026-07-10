@@ -65,13 +65,9 @@ def _find_outlook_account(session: Any, wanted: str) -> Any:
 
 
 def _apply_send_account(mail: Any, account: Any) -> None:
+    # Chỉ dùng SendUsingAccount cho account Outlook đã đăng nhập.
+    # Không set SentOnBehalfOfName vì sẽ biến mail thành dạng "gửi thay mặt" và dễ hiển thị sai From.
     mail.SendUsingAccount = account
-    smtp = _account_smtp(account)
-    if smtp:
-        try:
-            mail.SentOnBehalfOfName = smtp
-        except Exception:
-            pass
 
 
 def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:

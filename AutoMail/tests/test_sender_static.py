@@ -35,4 +35,5 @@ def test_sender_requires_selected_account_match() -> None:
     assert "raise RuntimeError" in source
     assert "def _apply_send_account" in source
     assert "mail.SendUsingAccount = account" in source
-    assert "mail.SentOnBehalfOfName = smtp" in source
+    assert "SentOnBehalfOfName" in source
+    assert "Không set SentOnBehalfOfName" in source
