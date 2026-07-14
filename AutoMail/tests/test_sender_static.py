@@ -46,3 +46,11 @@ def test_scheduler_forces_template_and_account_for_date_items() -> None:
     sender = SENDER_PATH.read_text(encoding="utf-8")
     assert 'force_template = bool(cfg.pop("force_template", False))' in sender
     assert 'if template and (force_template or "body" not in cfg):' in sender
+
+
+def test_scheduler_exposes_status() -> None:
+    source = SCHEDULER_PATH.read_text(encoding="utf-8")
+    assert "self._stopping = False" in source
+    assert "def status" in source
+    assert 'return "running"' in source
+    assert 'return "stopped"' in source

@@ -153,6 +153,9 @@ QFrame#hero { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #1d4ed8, s
 QLabel#heroTitle { color: white; font-size: 22pt; font-weight: 800; }
 QLabel#heroSubtitle { color: #e0f2fe; font-size: 10.5pt; }
 QLabel#pill { background: rgba(255,255,255,0.20); color: white; border-radius: 10px; padding: 6px 10px; font-weight: 700; }
+QLabel#statusRunning { background: #dcfce7; color: #166534; border-radius: 10px; padding: 6px 10px; font-weight: 800; }
+QLabel#statusStopping { background: #fef3c7; color: #92400e; border-radius: 10px; padding: 6px 10px; font-weight: 800; }
+QLabel#statusStopped { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 6px 10px; font-weight: 800; }
 QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 9px; padding: 5px 8px; selection-background-color: #bfdbfe; }
 QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 30px; border-left: 1px solid #d7deea; border-top-right-radius: 9px; border-bottom-right-radius: 9px; background: #eef4ff; }
 QComboBox::down-arrow { width: 10px; height: 10px; }
@@ -181,6 +184,7 @@ class AutoMailWindow(QMainWindow):
         self.setStyleSheet(MODERN_STYLE)
         self._build_ui()
         self._load_to_form()
+        self.update_scheduler_status()
 
     def _build_ui(self) -> None:
         root = QWidget(self)
@@ -210,6 +214,8 @@ class AutoMailWindow(QMainWindow):
         title_col.addWidget(hero_title)
         title_col.addWidget(hero_subtitle)
         hero_layout.addLayout(title_col, 1)
+        self.scheduler_status = QLabel("Scheduler: stopped")
+        hero_layout.addWidget(self.scheduler_status)
         self.account_count = QLabel("Outlook: đang tải")
         self.account_count.setObjectName("pill")
         hero_layout.addWidget(self.account_count)
@@ -476,9 +482,25 @@ class AutoMailWindow(QMainWindow):
         }
         return cfg
 
+    def update_scheduler_status(self, status: str | None = None) -> None:
+        status = status or (self.scheduler.status() if hasattr(self.scheduler, "status") else "stopped")
+        labels = {"running": "Scheduler: running", "stopping": "Scheduler: stopping", "stopped": "Scheduler: stopped"}
+        objects = {"running": "statusRunning", "stopping": "statusStopping", "stopped": "statusStopped"}
+        self.scheduler_status.setText(labels.get(status, f"Scheduler: {status}"))
+        self.scheduler_status.setObjectName(objects.get(status, "statusStopped"))
+        self.scheduler_status.style().unpolish(self.scheduler_status)
+        self.scheduler_status.style().polish(self.scheduler_status)
+
     def save(self) -> None:
         self.config = self._form_config()
         save_config(self.config)
+        if self.config.get("schedule", {}).get("enabled"):
+            self.scheduler.start()
+        else:
+            self.update_scheduler_status("stopping")
+            QApplication.processEvents()
+            self.scheduler.stop()
+        self.update_scheduler_status()
         self.statusBar().showMessage("Đã lưu config.json", 4000)
 
     def refresh_accounts(self) -> None:

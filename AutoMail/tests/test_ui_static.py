@@ -143,3 +143,12 @@ def test_master_calendar_template_library_and_new_config_flow() -> None:
     assert "refresh_calendar_markers" in source
     assert "def _current_account_value" in source
     assert "account=self._current_account_value()" in source
+
+
+def test_header_shows_scheduler_status() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "self.scheduler_status = QLabel(\"Scheduler: stopped\")" in source
+    assert "def update_scheduler_status" in source
+    assert "statusRunning" in source and "statusStopping" in source and "statusStopped" in source
+    assert "self.scheduler.start()" in source
+    assert "self.scheduler.stop()" in source

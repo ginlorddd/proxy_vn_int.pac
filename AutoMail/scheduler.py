@@ -17,20 +17,31 @@ class MailScheduler:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_key = ""
+        self._stopping = False
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self._stopping = False
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         logger.info("Scheduler started")
 
     def stop(self) -> None:
+        self._stopping = True
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
+        self._stopping = False
         logger.info("Scheduler stopped")
+
+    def status(self) -> str:
+        if self._stopping:
+            return "stopping"
+        if self._thread and self._thread.is_alive():
+            return "running"
+        return "stopped"
 
     def _run(self) -> None:
         while not self._stop.is_set():
