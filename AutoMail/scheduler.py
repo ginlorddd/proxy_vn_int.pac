@@ -96,7 +96,7 @@ def _schedule_item_matches(item: dict[str, Any], now: datetime) -> bool:
 
 
 def should_send_now(schedule: dict[str, Any], last_key: str) -> bool:
-    if not schedule.get("enabled"):
+    if not schedule.get("enabled") or schedule.get("date_schedules"):
         return False
     now = datetime.now()
     key = now.strftime("%Y%m%d%H%M")

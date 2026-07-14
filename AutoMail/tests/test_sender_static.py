@@ -54,3 +54,16 @@ def test_scheduler_exposes_status() -> None:
     assert "def status" in source
     assert 'return "running"' in source
     assert 'return "stopped"' in source
+
+
+def test_scheduler_date_schedules_disable_global_interval_spam() -> None:
+    source = SCHEDULER_PATH.read_text(encoding="utf-8")
+    assert 'not schedule.get("enabled") or schedule.get("date_schedules")' in source
+
+
+def test_sender_blocks_empty_mail_before_com_send() -> None:
+    source = SENDER_PATH.read_text(encoding="utf-8")
+    assert "def _validate_mail_config" in source
+    assert "Không gửi mail rỗng" in source
+    assert "Không gửi mail vì chưa có người nhận" in source
+    assert "_validate_mail_config(cfg)" in source

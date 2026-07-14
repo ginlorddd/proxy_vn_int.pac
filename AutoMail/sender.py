@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,20 @@ def _list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [x.strip() for x in value.replace(";", ",").split(",") if x.strip()]
     return [str(x).strip() for x in value if str(x).strip()]
+
+
+def _body_text(value: Any) -> str:
+    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    text = text.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">")
+    return " ".join(text.split())
+
+
+def _validate_mail_config(cfg: dict[str, Any]) -> None:
+    recipients = [*_list(cfg.get("to")), *_list(cfg.get("cc")), *_list(cfg.get("bcc"))]
+    if not recipients:
+        raise RuntimeError("Không gửi mail vì chưa có người nhận To/Cc/Bcc.")
+    if not cfg.get("template") and not str(cfg.get("subject", "")).strip() and not _body_text(cfg.get("body", "")):
+        raise RuntimeError("Không gửi mail rỗng: cần có subject, body hoặc template.")
 
 
 def _extract_email(value: str) -> str:
@@ -86,6 +101,8 @@ def send_mail(mail_config: dict[str, Any]) -> dict[str, Any]:
             cfg["subject"] = cfg.get("subject") or data["subject"]
             cfg["body"] = data["body"]
             cfg["body_format"] = data["body_format"]
+
+        _validate_mail_config(cfg)
 
         outlook = win32com.client.Dispatch("Outlook.Application")
         mail = outlook.CreateItem(0)
