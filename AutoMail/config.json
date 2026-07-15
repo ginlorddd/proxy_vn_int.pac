@@ -1,0 +1,19 @@
+{
+  "api": {"host": "127.0.0.1", "port": 8765, "token": "change-me"},
+  "mail": {
+    "account": "",
+    "to": ["recipient@example.com"],
+    "cc": [],
+    "bcc": [],
+    "subject": "AutoMail demo",
+    "body": "<p>Xin chào,</p><p>Đây là email tự động từ AutoMail.</p>",
+    "body_format": "html",
+    "font_family": "Calibri",
+    "font_size": 11,
+    "importance": "normal",
+    "attachments": [],
+    "template": ""
+  },
+  "schedule": {"enabled": false, "type": "daily", "time": "08:00", "weekdays": [0, 1, 2, 3, 4], "interval_minutes": 60, "date_schedules": []},
+  "send_on_startup": false
+}
