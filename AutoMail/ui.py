@@ -13,6 +13,7 @@ from sender import send_mail
 from state import load_state
 
 PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
+PR_MAILBOX_OWNER_ENTRYID = "http://schemas.microsoft.com/mapi/proptag/0x661B0102"
 
 try:
     from PySide6.QtCore import Qt
@@ -68,6 +69,14 @@ def _extract_email(value: str) -> str:
 def _property_accessor_smtp(obj: Any) -> str:
     try:
         return str(obj.PropertyAccessor.GetProperty(PR_SMTP_ADDRESS) or "").strip()
+    except Exception:
+        return ""
+
+
+def _store_owner_smtp(session: Any, store: Any) -> str:
+    try:
+        entry_id = store.PropertyAccessor.GetProperty(PR_MAILBOX_OWNER_ENTRYID)
+        return _address_entry_smtp(session.GetAddressEntryFromID(entry_id))
     except Exception:
         return ""
 
@@ -163,15 +172,31 @@ def get_outlook_accounts() -> list[str]:
             pass
         accounts: list[str] = []
 
-        for account in _iter_com_collection(session.Accounts):
+        try:
+            account_items = _iter_com_collection(session.Accounts)
+        except Exception:
+            account_items = []
+        for account in account_items:
             smtp = _account_smtp(account)
             display = str(getattr(account, "DisplayName", "") or getattr(account, "UserName", "") or smtp).strip()
             _add_account_value(accounts, display, smtp)
 
-        for store in _iter_com_collection(getattr(session, "Stores", [])):
-            smtp = _property_accessor_smtp(store)
+        try:
+            store_items = _iter_com_collection(session.Stores)
+        except Exception:
+            store_items = []
+        for store in store_items:
+            smtp = _property_accessor_smtp(store) or _store_owner_smtp(session, store)
             display = str(getattr(store, "DisplayName", "") or smtp).strip()
             _add_account_value(accounts, display, smtp)
+
+        try:
+            folder_items = _iter_com_collection(session.Folders)
+        except Exception:
+            folder_items = []
+        for folder in folder_items:
+            display = str(getattr(folder, "Name", "") or "").strip()
+            _add_account_value(accounts, display, display if "@" in display else "")
 
         display, smtp = _session_current_user_smtp(session)
         _add_account_value(accounts, display, smtp)

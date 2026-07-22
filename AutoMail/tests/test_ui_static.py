@@ -86,7 +86,7 @@ def test_outlook_accounts_use_count_item_iteration() -> None:
     source = UI_PATH.read_text(encoding="utf-8")
     assert "def _iter_com_collection" in source
     assert "collection.Item(index)" in source
-    assert "for account in _iter_com_collection(session.Accounts)" in source
+    assert "account_items = _iter_com_collection(session.Accounts)" in source
 
 
 def test_ui_keeps_action_buttons_visible_in_scrollable_layout() -> None:
@@ -162,3 +162,12 @@ def test_outlook_account_loading_uses_active_object_logon_and_stores() -> None:
     assert "Stores" in source
     assert "PR_SMTP_ADDRESS" in source
     assert "_session_current_user_smtp" in source
+
+
+def test_classic_outlook_account_loading_falls_back_to_folders_and_store_owner() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "PR_MAILBOX_OWNER_ENTRYID" in source
+    assert "def _store_owner_smtp" in source
+    assert "session.Accounts" in source and "account_items = []" in source
+    assert "session.Stores" in source and "store_items = []" in source
+    assert "session.Folders" in source and "folder_items = []" in source
