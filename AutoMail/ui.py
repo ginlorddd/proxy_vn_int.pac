@@ -12,6 +12,8 @@ from scheduler import MailScheduler
 from sender import send_mail
 from state import load_state
 
+PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
+
 try:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QAction, QColor, QTextCharFormat, QTextCursor, QTextListFormat
@@ -63,14 +65,16 @@ def _extract_email(value: str) -> str:
     return text
 
 
-def _account_smtp(account: Any) -> str:
-    smtp = str(getattr(account, "SmtpAddress", "") or "").strip()
-    if smtp:
-        return smtp
+def _property_accessor_smtp(obj: Any) -> str:
     try:
-        user = account.CurrentUser
-        entry = user.AddressEntry
-        if str(entry.Type).upper() == "EX":
+        return str(obj.PropertyAccessor.GetProperty(PR_SMTP_ADDRESS) or "").strip()
+    except Exception:
+        return ""
+
+
+def _address_entry_smtp(entry: Any) -> str:
+    try:
+        if str(getattr(entry, "Type", "")).upper() == "EX":
             exchange_user = entry.GetExchangeUser()
             smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
             if smtp:
@@ -78,6 +82,28 @@ def _account_smtp(account: Any) -> str:
         return str(getattr(entry, "Address", "") or "").strip()
     except Exception:
         return ""
+
+
+def _account_smtp(account: Any) -> str:
+    for candidate in (
+        str(getattr(account, "SmtpAddress", "") or "").strip(),
+        str(getattr(account, "UserName", "") or "").strip(),
+    ):
+        if "@" in candidate:
+            return candidate
+    try:
+        smtp = _address_entry_smtp(account.CurrentUser.AddressEntry)
+        if smtp:
+            return smtp
+    except Exception:
+        pass
+    try:
+        smtp = _property_accessor_smtp(account.DeliveryStore)
+        if smtp:
+            return smtp
+    except Exception:
+        pass
+    return ""
 
 
 def _add_account_value(accounts: list[str], display: str, smtp: str) -> None:
@@ -98,8 +124,30 @@ def _iter_com_collection(collection: Any) -> list[Any]:
             return []
 
 
+def _outlook_application(win32com: Any) -> Any:
+    try:
+        return win32com.client.GetActiveObject("Outlook.Application")
+    except Exception:
+        pass
+    try:
+        return win32com.client.Dispatch("Outlook.Application")
+    except Exception:
+        return win32com.client.gencache.EnsureDispatch("Outlook.Application")
+
+
+def _session_current_user_smtp(session: Any) -> tuple[str, str]:
+    current_user = getattr(session, "CurrentUser", None)
+    if current_user is None:
+        return "", ""
+    try:
+        smtp = _address_entry_smtp(current_user.AddressEntry)
+        return str(getattr(current_user, "Name", "") or smtp), smtp
+    except Exception:
+        return "", ""
+
+
 def get_outlook_accounts() -> list[str]:
-    """Đọc đầy đủ account Outlook đã đăng nhập từ MAPI, Exchange và CurrentUser."""
+    """Đọc đầy đủ account Outlook đã đăng nhập từ MAPI, Exchange, Stores và CurrentUser."""
     pythoncom = None
     try:
         import pythoncom as _pythoncom  # type: ignore
@@ -107,31 +155,26 @@ def get_outlook_accounts() -> list[str]:
 
         pythoncom = _pythoncom
         pythoncom.CoInitialize()
+        outlook = _outlook_application(win32com)
+        session = outlook.GetNamespace("MAPI")
         try:
-            outlook = win32com.client.gencache.EnsureDispatch("Outlook.Application")
+            session.Logon("", "", False, False)
         except Exception:
-            outlook = win32com.client.Dispatch("Outlook.Application")
-        session = outlook.Session or outlook.GetNamespace("MAPI")
+            pass
         accounts: list[str] = []
 
         for account in _iter_com_collection(session.Accounts):
             smtp = _account_smtp(account)
-            display = str(getattr(account, "DisplayName", "") or smtp).strip()
+            display = str(getattr(account, "DisplayName", "") or getattr(account, "UserName", "") or smtp).strip()
             _add_account_value(accounts, display, smtp)
 
-        current_user = getattr(session, "CurrentUser", None)
-        if current_user is not None:
-            try:
-                entry = current_user.AddressEntry
-                smtp = ""
-                if str(getattr(entry, "Type", "")).upper() == "EX":
-                    exchange_user = entry.GetExchangeUser()
-                    smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
-                smtp = smtp or str(getattr(entry, "Address", "") or "").strip()
-                _add_account_value(accounts, str(getattr(current_user, "Name", "") or smtp), smtp)
-            except Exception:
-                pass
+        for store in _iter_com_collection(getattr(session, "Stores", [])):
+            smtp = _property_accessor_smtp(store)
+            display = str(getattr(store, "DisplayName", "") or smtp).strip()
+            _add_account_value(accounts, display, smtp)
 
+        display, smtp = _session_current_user_smtp(session)
+        _add_account_value(accounts, display, smtp)
         return accounts
     except Exception:
         return []

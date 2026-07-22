@@ -152,3 +152,13 @@ def test_header_shows_scheduler_status() -> None:
     assert "statusRunning" in source and "statusStopping" in source and "statusStopped" in source
     assert "self.scheduler.start()" in source
     assert "self.scheduler.stop()" in source
+
+
+def test_outlook_account_loading_uses_active_object_logon_and_stores() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "def _outlook_application" in source
+    assert "GetActiveObject(\"Outlook.Application\")" in source
+    assert "session.Logon(\"\", \"\", False, False)" in source
+    assert "Stores" in source
+    assert "PR_SMTP_ADDRESS" in source
+    assert "_session_current_user_smtp" in source

@@ -10,6 +10,8 @@ from state import record_error, record_success
 
 logger = setup_logger()
 
+PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
+
 
 def _list(value: Any) -> list[str]:
     if value is None:
@@ -50,13 +52,15 @@ def _iter_com_collection(collection: Any) -> list[Any]:
             return []
 
 
-def _account_smtp(account: Any) -> str:
-    smtp = str(getattr(account, "SmtpAddress", "") or "").strip()
-    if smtp:
-        return smtp
+def _property_accessor_smtp(obj: Any) -> str:
     try:
-        user = account.CurrentUser
-        entry = user.AddressEntry
+        return str(obj.PropertyAccessor.GetProperty(PR_SMTP_ADDRESS) or "").strip()
+    except Exception:
+        return ""
+
+
+def _address_entry_smtp(entry: Any) -> str:
+    try:
         if str(getattr(entry, "Type", "")).upper() == "EX":
             exchange_user = entry.GetExchangeUser()
             smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
@@ -65,6 +69,28 @@ def _account_smtp(account: Any) -> str:
         return str(getattr(entry, "Address", "") or "").strip()
     except Exception:
         return ""
+
+
+def _account_smtp(account: Any) -> str:
+    for candidate in (
+        str(getattr(account, "SmtpAddress", "") or "").strip(),
+        str(getattr(account, "UserName", "") or "").strip(),
+    ):
+        if "@" in candidate:
+            return candidate
+    try:
+        smtp = _address_entry_smtp(account.CurrentUser.AddressEntry)
+        if smtp:
+            return smtp
+    except Exception:
+        pass
+    try:
+        smtp = _property_accessor_smtp(account.DeliveryStore)
+        if smtp:
+            return smtp
+    except Exception:
+        pass
+    return ""
 
 
 def _find_outlook_account(session: Any, wanted: str) -> Any:
