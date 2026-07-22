@@ -71,3 +71,103 @@ def test_modern_editor_features_are_present() -> None:
     assert "import_recipients" in source
     assert "QCalendarWidget" in source
     assert "date_schedules" in source
+
+
+def test_from_account_is_non_editable_outlook_dropdown() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "self.account = QComboBox()" in source
+    assert "self.account.setEditable(False)" in source
+    assert "self.account.addItem(\"Chọn account Outlook đã đăng nhập\")" in source
+    assert "self.account.addItem(account, _extract_email(account))" in source
+    assert "currentData()" in source
+
+
+def test_outlook_accounts_use_count_item_iteration() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "def _iter_com_collection" in source
+    assert "collection.Item(index)" in source
+    assert "account_items = _iter_com_collection(session.Accounts)" in source
+
+
+def test_ui_keeps_action_buttons_visible_in_scrollable_layout() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "QScrollArea" in source
+    assert "viewport.setWidgetResizable(True)" in source
+    assert "account_widget = QWidget()" in source
+    assert "refresh_accounts.setMinimumWidth(150)" in source
+    assert "import_recipients_quick = QPushButton(\"Import To/Cc/Bcc\")" in source
+
+
+def test_editor_gets_priority_over_compact_sections() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "editor_card.setMinimumHeight(500)" in source
+    assert "self.editor.setMinimumHeight(440)" in source
+    assert "layout.addWidget(editor_card, 5)" in source
+    assert "mail_card.setMaximumHeight(310)" in source
+    assert "schedule_card.setMaximumHeight(500)" in source
+    assert "self.calendar.setMaximumHeight(130)" in source
+    assert "self.date_schedule_table.setMinimumHeight(150)" in source
+    assert "self.date_schedule_table.setMaximumHeight(190)" in source
+
+
+def test_schedule_supports_multiple_templates_repeats_and_recipients() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert 'QComboBox::drop-down' in source
+    assert 'QSpinBox::up-button' in source and 'QSpinBox::down-button' in source
+    assert 'self.date_schedule_table = QTableWidget(0, 8)' in source
+    assert '["Ngày", "Giờ", "Lặp", "From", "Template/Nội dung mail", "To", "Cc", "Bcc"]' in source
+    assert 'def add_template_schedule' in source
+    assert '"repeat": values[2] or "once"' in source
+    assert '"to": _split(values[5])' in source
+
+
+def test_schedule_rows_can_be_deleted() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "QAbstractItemView" in source
+    assert "setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)" in source
+    assert "setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)" in source
+    assert "Xóa dòng đã chọn" in source
+    assert "def delete_selected_date_schedules" in source
+    assert "self.date_schedule_table.removeRow(row)" in source
+
+
+def test_master_calendar_template_library_and_new_config_flow() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "Lịch gửi master" in source
+    assert "self.calendar.selectionChanged.connect(self.show_selected_date_info)" in source
+    assert "self.template_combo = QComboBox()" in source
+    assert "Thêm template có sẵn" in source
+    assert "def add_template_library_item" in source
+    assert "def new_day_mail_config" in source
+    assert "self.to.clear()" in source and "self.editor.clear()" in source
+    assert "refresh_calendar_markers" in source
+    assert "def _current_account_value" in source
+    assert "account=self._current_account_value()" in source
+
+
+def test_header_shows_scheduler_status() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "self.scheduler_status = QLabel(\"Scheduler: stopped\")" in source
+    assert "def update_scheduler_status" in source
+    assert "statusRunning" in source and "statusStopping" in source and "statusStopped" in source
+    assert "self.scheduler.start()" in source
+    assert "self.scheduler.stop()" in source
+
+
+def test_outlook_account_loading_uses_active_object_logon_and_stores() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "def _outlook_application" in source
+    assert "GetActiveObject(\"Outlook.Application\")" in source
+    assert "session.Logon(\"\", \"\", False, False)" in source
+    assert "Stores" in source
+    assert "PR_SMTP_ADDRESS" in source
+    assert "_session_current_user_smtp" in source
+
+
+def test_classic_outlook_account_loading_falls_back_to_folders_and_store_owner() -> None:
+    source = UI_PATH.read_text(encoding="utf-8")
+    assert "PR_MAILBOX_OWNER_ENTRYID" in source
+    assert "def _store_owner_smtp" in source
+    assert "session.Accounts" in source and "account_items = []" in source
+    assert "session.Stores" in source and "store_items = []" in source
+    assert "session.Folders" in source and "folder_items = []" in source

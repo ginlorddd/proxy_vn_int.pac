@@ -12,10 +12,14 @@ from scheduler import MailScheduler
 from sender import send_mail
 from state import load_state
 
+PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
+PR_MAILBOX_OWNER_ENTRYID = "http://schemas.microsoft.com/mapi/proptag/0x661B0102"
+
 try:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QAction, QColor, QTextCharFormat, QTextCursor, QTextListFormat
     from PySide6.QtWidgets import (
+        QAbstractItemView,
         QApplication,
         QCalendarWidget,
         QCheckBox,
@@ -24,12 +28,17 @@ try:
         QFileDialog,
         QFontComboBox,
         QFormLayout,
+        QFrame,
+        QGroupBox,
         QHBoxLayout,
+        QHeaderView,
         QLabel,
         QLineEdit,
         QMainWindow,
         QMessageBox,
         QPushButton,
+        QScrollArea,
+        QSizePolicy,
         QSpinBox,
         QTableWidget,
         QTableWidgetItem,
@@ -57,14 +66,24 @@ def _extract_email(value: str) -> str:
     return text
 
 
-def _account_smtp(account: Any) -> str:
-    smtp = str(getattr(account, "SmtpAddress", "") or "").strip()
-    if smtp:
-        return smtp
+def _property_accessor_smtp(obj: Any) -> str:
     try:
-        user = account.CurrentUser
-        entry = user.AddressEntry
-        if str(entry.Type).upper() == "EX":
+        return str(obj.PropertyAccessor.GetProperty(PR_SMTP_ADDRESS) or "").strip()
+    except Exception:
+        return ""
+
+
+def _store_owner_smtp(session: Any, store: Any) -> str:
+    try:
+        entry_id = store.PropertyAccessor.GetProperty(PR_MAILBOX_OWNER_ENTRYID)
+        return _address_entry_smtp(session.GetAddressEntryFromID(entry_id))
+    except Exception:
+        return ""
+
+
+def _address_entry_smtp(entry: Any) -> str:
+    try:
+        if str(getattr(entry, "Type", "")).upper() == "EX":
             exchange_user = entry.GetExchangeUser()
             smtp = str(getattr(exchange_user, "PrimarySmtpAddress", "") or "").strip()
             if smtp:
@@ -74,38 +93,149 @@ def _account_smtp(account: Any) -> str:
         return ""
 
 
-def get_outlook_accounts() -> list[str]:
-    """Đọc account Outlook đã đăng nhập, hỗ trợ cả Exchange account không có SmtpAddress trực tiếp."""
+def _account_smtp(account: Any) -> str:
+    for candidate in (
+        str(getattr(account, "SmtpAddress", "") or "").strip(),
+        str(getattr(account, "UserName", "") or "").strip(),
+    ):
+        if "@" in candidate:
+            return candidate
     try:
-        import pythoncom  # type: ignore
+        smtp = _address_entry_smtp(account.CurrentUser.AddressEntry)
+        if smtp:
+            return smtp
+    except Exception:
+        pass
+    try:
+        smtp = _property_accessor_smtp(account.DeliveryStore)
+        if smtp:
+            return smtp
+    except Exception:
+        pass
+    return ""
+
+
+def _add_account_value(accounts: list[str], display: str, smtp: str) -> None:
+    display = display.strip()
+    smtp = smtp.strip()
+    value = f"{display} <{smtp}>" if smtp and display and display.lower() != smtp.lower() else smtp or display
+    if value and value not in accounts:
+        accounts.append(value)
+
+
+def _iter_com_collection(collection: Any) -> list[Any]:
+    try:
+        return [collection.Item(index) for index in range(1, int(collection.Count) + 1)]
+    except Exception:
+        try:
+            return list(collection)
+        except Exception:
+            return []
+
+
+def _outlook_application(win32com: Any) -> Any:
+    try:
+        return win32com.client.GetActiveObject("Outlook.Application")
+    except Exception:
+        pass
+    try:
+        return win32com.client.Dispatch("Outlook.Application")
+    except Exception:
+        return win32com.client.gencache.EnsureDispatch("Outlook.Application")
+
+
+def _session_current_user_smtp(session: Any) -> tuple[str, str]:
+    current_user = getattr(session, "CurrentUser", None)
+    if current_user is None:
+        return "", ""
+    try:
+        smtp = _address_entry_smtp(current_user.AddressEntry)
+        return str(getattr(current_user, "Name", "") or smtp), smtp
+    except Exception:
+        return "", ""
+
+
+def get_outlook_accounts() -> list[str]:
+    """Đọc đầy đủ account Outlook đã đăng nhập từ MAPI, Exchange, Stores và CurrentUser."""
+    pythoncom = None
+    try:
+        import pythoncom as _pythoncom  # type: ignore
         import win32com.client  # type: ignore
 
+        pythoncom = _pythoncom
         pythoncom.CoInitialize()
+        outlook = _outlook_application(win32com)
+        session = outlook.GetNamespace("MAPI")
         try:
-            outlook = win32com.client.gencache.EnsureDispatch("Outlook.Application")
+            session.Logon("", "", False, False)
         except Exception:
-            outlook = win32com.client.Dispatch("Outlook.Application")
-        session = outlook.Session or outlook.GetNamespace("MAPI")
+            pass
         accounts: list[str] = []
-        for account in session.Accounts:
+
+        try:
+            account_items = _iter_com_collection(session.Accounts)
+        except Exception:
+            account_items = []
+        for account in account_items:
             smtp = _account_smtp(account)
-            display = str(getattr(account, "DisplayName", "") or smtp).strip()
-            value = f"{display} <{smtp}>" if smtp and display and display.lower() != smtp.lower() else smtp or display
-            if value and value not in accounts:
-                accounts.append(value)
+            display = str(getattr(account, "DisplayName", "") or getattr(account, "UserName", "") or smtp).strip()
+            _add_account_value(accounts, display, smtp)
+
+        try:
+            store_items = _iter_com_collection(session.Stores)
+        except Exception:
+            store_items = []
+        for store in store_items:
+            smtp = _property_accessor_smtp(store) or _store_owner_smtp(session, store)
+            display = str(getattr(store, "DisplayName", "") or smtp).strip()
+            _add_account_value(accounts, display, smtp)
+
+        try:
+            folder_items = _iter_com_collection(session.Folders)
+        except Exception:
+            folder_items = []
+        for folder in folder_items:
+            display = str(getattr(folder, "Name", "") or "").strip()
+            _add_account_value(accounts, display, display if "@" in display else "")
+
+        display, smtp = _session_current_user_smtp(session)
+        _add_account_value(accounts, display, smtp)
         return accounts
     except Exception:
         return []
+    finally:
+        if pythoncom is not None:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
 
 MODERN_STYLE = """
-QMainWindow, QWidget { background: #f6f8fb; color: #1f2937; font-size: 10pt; }
-QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 6px; padding: 6px; }
-QPushButton { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+QMainWindow { background: #f3f6fb; }
+QWidget { color: #111827; font-family: Segoe UI, Arial; font-size: 10pt; }
+QLabel { background: transparent; color: #111827; }
+QGroupBox#card { background: #ffffff; border: 1px solid #dbe3ef; border-radius: 14px; margin-top: 14px; padding: 16px; font-weight: 700; }
+QGroupBox#card::title { subcontrol-origin: margin; left: 16px; padding: 0 8px; color: #1d4ed8; }
+QFrame#hero { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #1d4ed8, stop:1 #06b6d4); border-radius: 18px; }
+QLabel#heroTitle { color: white; font-size: 22pt; font-weight: 800; }
+QLabel#heroSubtitle { color: #e0f2fe; font-size: 10.5pt; }
+QLabel#pill { background: rgba(255,255,255,0.20); color: white; border-radius: 10px; padding: 6px 10px; font-weight: 700; }
+QLabel#statusRunning { background: #dcfce7; color: #166534; border-radius: 10px; padding: 6px 10px; font-weight: 800; }
+QLabel#statusStopping { background: #fef3c7; color: #92400e; border-radius: 10px; padding: 6px 10px; font-weight: 800; }
+QLabel#statusStopped { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 6px 10px; font-weight: 800; }
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QTableWidget { background: white; border: 1px solid #d7deea; border-radius: 9px; padding: 5px 8px; selection-background-color: #bfdbfe; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 30px; border-left: 1px solid #d7deea; border-top-right-radius: 9px; border-bottom-right-radius: 9px; background: #eef4ff; }
+QComboBox::down-arrow { width: 10px; height: 10px; }
+QSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 26px; border-left: 1px solid #d7deea; border-top-right-radius: 9px; background: #eef4ff; }
+QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 26px; border-left: 1px solid #d7deea; border-bottom-right-radius: 9px; background: #eef4ff; }
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #2563eb; }
+QPushButton { background: #2563eb; color: white; border: none; border-radius: 9px; padding: 9px 14px; font-weight: 700; }
 QPushButton:hover { background: #1d4ed8; }
 QPushButton#secondary { background: #e8eef8; color: #1f2937; }
-QToolBar { background: #edf2fb; border: 1px solid #d7deea; spacing: 6px; padding: 6px; }
-QHeaderView::section { background: #e8eef8; padding: 6px; border: 0; font-weight: 600; }
+QPushButton#success { background: #059669; }
+QToolBar { background: #ffffff; border: 1px solid #d7deea; spacing: 6px; padding: 6px; }
+QHeaderView::section { background: #e8eef8; padding: 8px; border: 0; font-weight: 700; }
 """
 
 
@@ -116,32 +246,80 @@ class AutoMailWindow(QMainWindow):
         super().__init__()
         self.scheduler = scheduler
         self.config = load_config()
+        self._marked_schedule_dates: set[str] = set()
         self.setWindowTitle("AutoMail - Outlook style editor")
         self.resize(1180, 820)
         self.setStyleSheet(MODERN_STYLE)
         self._build_ui()
         self._load_to_form()
+        self.update_scheduler_status()
 
     def _build_ui(self) -> None:
         root = QWidget(self)
-        layout = QVBoxLayout(root)
+        page_layout = QVBoxLayout(root)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+        viewport = QScrollArea(root)
+        viewport.setWidgetResizable(True)
+        viewport.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget(viewport)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(18, 18, 18, 12)
+        layout.setSpacing(12)
+        viewport.setWidget(content)
+        page_layout.addWidget(viewport, 1)
         self.setCentralWidget(root)
 
-        form = QFormLayout()
+        hero = QFrame()
+        hero.setObjectName("hero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(22, 18, 22, 18)
+        title_col = QVBoxLayout()
+        hero_title = QLabel("AutoMail Outlook")
+        hero_title.setObjectName("heroTitle")
+        hero_subtitle = QLabel("Soạn mail rich-text, chọn tài khoản Outlook đã đăng nhập và lập lịch gửi tự động.")
+        hero_subtitle.setObjectName("heroSubtitle")
+        title_col.addWidget(hero_title)
+        title_col.addWidget(hero_subtitle)
+        hero_layout.addLayout(title_col, 1)
+        self.scheduler_status = QLabel("Scheduler: stopped")
+        hero_layout.addWidget(self.scheduler_status)
+        self.account_count = QLabel("Outlook: đang tải")
+        self.account_count.setObjectName("pill")
+        hero_layout.addWidget(self.account_count)
+        layout.addWidget(hero)
+
+        mail_card = QGroupBox("Thông tin gửi mail")
+        mail_card.setObjectName("card")
+        mail_card.setMaximumHeight(310)
+        form = QFormLayout(mail_card)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(8)
         self.account = QComboBox()
-        self.account.setEditable(True)
+        self.account.setEditable(False)
+        self.account.setPlaceholderText("Chọn account Outlook đã đăng nhập")
+        self.account.setMinimumWidth(360)
+        self.account.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.refresh_accounts()
         self.to = QLineEdit()
         self.cc = QLineEdit()
         self.bcc = QLineEdit()
         self.subject = QLineEdit()
-        account_row = QHBoxLayout()
-        account_row.addWidget(self.account)
+        for field in (self.account, self.to, self.cc, self.bcc, self.subject):
+            field.setMinimumHeight(34)
+        account_widget = QWidget()
+        account_widget.setObjectName("inlineActions")
+        account_row = QHBoxLayout(account_widget)
+        account_row.setContentsMargins(0, 0, 0, 0)
+        account_row.setSpacing(8)
+        account_row.addWidget(self.account, 1)
         refresh_accounts = QPushButton("Tải account Outlook")
         refresh_accounts.setObjectName("secondary")
+        refresh_accounts.setMinimumWidth(150)
         refresh_accounts.clicked.connect(self.refresh_accounts)
         account_row.addWidget(refresh_accounts)
-        form.addRow("From/account", account_row)
+        form.addRow("From/account", account_widget)
         form.addRow("Tới", self.to)
         form.addRow("Cc", self.cc)
         form.addRow("Bcc", self.bcc)
@@ -150,14 +328,26 @@ class AutoMailWindow(QMainWindow):
         import_recipients.clicked.connect(self.import_recipients)
         form.addRow("Import người nhận", import_recipients)
         form.addRow("Tiêu đề", self.subject)
-        layout.addLayout(form)
+        layout.addWidget(mail_card)
 
+        editor_card = QGroupBox("Nội dung email")
+        editor_card.setObjectName("card")
+        editor_card.setMinimumHeight(500)
+        editor_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        editor_layout = QVBoxLayout(editor_card)
         self.editor = QTextEdit()
         self.editor.setAcceptRichText(True)
+        self.editor.setMinimumHeight(440)
+        self.editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.editor.setPlaceholderText("Soạn nội dung mail tại đây hoặc chọn file .eml để nạp nội dung...")
-        layout.addWidget(self.editor, 1)
+        editor_layout.addWidget(self.editor, 1)
+        layout.addWidget(editor_card, 5)
         self._build_toolbar()
 
+        schedule_card = QGroupBox("Lịch gửi")
+        schedule_card.setObjectName("card")
+        schedule_card.setMaximumHeight(500)
+        schedule_layout = QVBoxLayout(schedule_card)
         schedule_row = QHBoxLayout()
         self.schedule_enabled = QCheckBox("Bật schedule")
         self.schedule_type = QComboBox()
@@ -174,7 +364,7 @@ class AutoMailWindow(QMainWindow):
         schedule_row.addWidget(QLabel("Interval phút"))
         schedule_row.addWidget(self.interval)
         schedule_row.addStretch()
-        layout.addLayout(schedule_row)
+        schedule_layout.addLayout(schedule_row)
 
         weekday_row = QHBoxLayout()
         weekday_row.addWidget(QLabel("Gửi vào thứ"))
@@ -185,30 +375,69 @@ class AutoMailWindow(QMainWindow):
             weekday_row.addWidget(check)
             self.weekday_checks.append(check)
         weekday_row.addStretch()
-        layout.addLayout(weekday_row)
+        schedule_layout.addLayout(weekday_row)
 
         self.calendar = QCalendarWidget()
+        self.calendar.setMaximumHeight(130)
         self.calendar.setGridVisible(True)
-        self.calendar.selectionChanged.connect(self.add_selected_date_schedule)
-        layout.addWidget(QLabel("Lịch gửi theo ngày cụ thể (chọn ngày trên calendar để thêm dòng gửi):"))
-        layout.addWidget(self.calendar)
-        self.date_schedule_table = QTableWidget(0, 3)
-        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Template/Nội dung mail"])
-        layout.addWidget(self.date_schedule_table)
+        self.calendar.selectionChanged.connect(self.show_selected_date_info)
+        schedule_layout.addWidget(QLabel("Lịch gửi master: chọn ngày để xem/thêm cấu hình gửi mail tự động:"))
+        schedule_layout.addWidget(self.calendar)
+        template_row = QHBoxLayout()
+        template_row.addWidget(QLabel("Template có sẵn"))
+        self.template_combo = QComboBox()
+        self.template_combo.setMinimumWidth(360)
+        template_row.addWidget(self.template_combo, 1)
+        add_library_template = QPushButton("Thêm template có sẵn")
+        add_library_template.setObjectName("secondary")
+        add_library_template.clicked.connect(self.add_template_library_item)
+        template_row.addWidget(add_library_template)
+        schedule_layout.addLayout(template_row)
+        self.date_schedule_table = QTableWidget(0, 8)
+        self.date_schedule_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.date_schedule_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.date_schedule_table.setMinimumHeight(150)
+        self.date_schedule_table.setMaximumHeight(190)
+        self.date_schedule_table.setHorizontalHeaderLabels(["Ngày", "Giờ", "Lặp", "From", "Template/Nội dung mail", "To", "Cc", "Bcc"])
+        self.date_schedule_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        schedule_layout.addWidget(self.date_schedule_table)
+        schedule_buttons = QHBoxLayout()
+        new_config = QPushButton("Thêm mới cấu hình ngày")
+        new_config.setObjectName("secondary")
+        new_config.clicked.connect(self.new_day_mail_config)
+        add_template = QPushButton("Thêm template vào lịch")
+        add_template.setObjectName("secondary")
+        add_template.clicked.connect(self.add_template_schedule)
+        delete_rows = QPushButton("Xóa dòng đã chọn")
+        delete_rows.setObjectName("secondary")
+        delete_rows.clicked.connect(self.delete_selected_date_schedules)
+        schedule_buttons.addWidget(new_config)
+        schedule_buttons.addWidget(add_template)
+        schedule_buttons.addWidget(delete_rows)
+        schedule_buttons.addStretch()
+        schedule_layout.addLayout(schedule_buttons)
+        layout.addWidget(schedule_card)
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(10)
         pick_eml = QPushButton("Chọn .eml và nạp nội dung")
         pick_eml.clicked.connect(self.pick_eml)
         save = QPushButton("Lưu config")
         save.clicked.connect(self.save)
         send = QPushButton("Gửi thử")
+        send.setObjectName("success")
         send.clicked.connect(self.send_test)
         state = QPushButton("Xem trạng thái")
         state.clicked.connect(self.show_state)
-        for btn in (pick_eml, save, send, state):
+        import_recipients_quick = QPushButton("Import To/Cc/Bcc")
+        import_recipients_quick.setObjectName("secondary")
+        import_recipients_quick.clicked.connect(self.import_recipients)
+        for btn in (pick_eml, import_recipients_quick, save, send, state):
+            btn.setMinimumHeight(34)
             buttons.addWidget(btn)
         buttons.addStretch()
-        layout.addLayout(buttons)
+        buttons.setContentsMargins(18, 10, 18, 10)
+        page_layout.addLayout(buttons)
         self.statusBar().showMessage(f"Config: {CONFIG_FILE}")
 
     def _build_toolbar(self) -> None:
@@ -263,10 +492,17 @@ class AutoMailWindow(QMainWindow):
 
     def _load_to_form(self) -> None:
         mail = self.config["mail"]
-        account = mail.get("account", "")
-        if account and self.account.findText(account) == -1:
-            self.account.addItem(account)
-        self.account.setCurrentText(account)
+        account = str(mail.get("account", "") or "")
+        if account:
+            match = self.account.findData(account)
+            if match == -1:
+                match = self.account.findText(account)
+            if match == -1:
+                self.account.addItem(account, _extract_email(account))
+                match = self.account.count() - 1
+            self.account.setCurrentIndex(match)
+        else:
+            self.account.setCurrentIndex(0)
         self.to.setText(_join(mail.get("to")))
         self.cc.setText(_join(mail.get("cc")))
         self.bcc.setText(_join(mail.get("bcc")))
@@ -285,12 +521,14 @@ class AutoMailWindow(QMainWindow):
         weekdays = set(schedule.get("weekdays", [0, 1, 2, 3, 4]))
         for check in self.weekday_checks:
             check.setChecked(int(check.property("weekday")) in weekdays)
+        self.refresh_template_combo()
         self._load_date_schedules(schedule.get("date_schedules", []))
+        self.refresh_calendar_markers()
 
     def _form_config(self) -> dict[str, Any]:
         cfg = load_config()
         cfg["mail"].update({
-            "account": _extract_email(self.account.currentText()),
+            "account": "" if self.account.currentIndex() <= 0 else str(self.account.currentData() or _extract_email(self.account.currentText())),
             "to": _split(self.to.text()),
             "cc": _split(self.cc.text()),
             "bcc": _split(self.bcc.text()),
@@ -301,6 +539,7 @@ class AutoMailWindow(QMainWindow):
             "font_size": self.font_size.value(),
         })
         selected_weekdays = [int(check.property("weekday")) for check in self.weekday_checks if check.isChecked()]
+        cfg["templates"] = [self.template_combo.itemData(index) or self.template_combo.itemText(index) for index in range(self.template_combo.count()) if index > 0]
         cfg["schedule"] = {
             "enabled": self.schedule_enabled.isChecked(),
             "type": self.schedule_type.currentText(),
@@ -311,21 +550,52 @@ class AutoMailWindow(QMainWindow):
         }
         return cfg
 
+    def update_scheduler_status(self, status: str | None = None) -> None:
+        status = status or (self.scheduler.status() if hasattr(self.scheduler, "status") else "stopped")
+        labels = {"running": "Scheduler: running", "stopping": "Scheduler: stopping", "stopped": "Scheduler: stopped"}
+        objects = {"running": "statusRunning", "stopping": "statusStopping", "stopped": "statusStopped"}
+        self.scheduler_status.setText(labels.get(status, f"Scheduler: {status}"))
+        self.scheduler_status.setObjectName(objects.get(status, "statusStopped"))
+        self.scheduler_status.style().unpolish(self.scheduler_status)
+        self.scheduler_status.style().polish(self.scheduler_status)
+
     def save(self) -> None:
         self.config = self._form_config()
         save_config(self.config)
+        if self.config.get("schedule", {}).get("enabled"):
+            self.scheduler.start()
+        else:
+            self.update_scheduler_status("stopping")
+            QApplication.processEvents()
+            self.scheduler.stop()
+        self.update_scheduler_status()
         self.statusBar().showMessage("Đã lưu config.json", 4000)
 
     def refresh_accounts(self) -> None:
-        current = self.account.currentText().strip() if hasattr(self, "account") else ""
+        current = ""
+        if hasattr(self, "account") and self.account.currentIndex() > 0:
+            current = str(self.account.currentData() or self.account.currentText()).strip()
         accounts = get_outlook_accounts()
         self.account.clear()
-        self.account.addItem("")
-        self.account.addItems(accounts)
+        self.account.addItem("Chọn account Outlook đã đăng nhập")
+        self.account.setItemData(0, "", Qt.ItemDataRole.UserRole)
+        for account in accounts:
+            self.account.addItem(account, _extract_email(account))
         if current:
-            self.account.setCurrentText(current)
+            match = self.account.findData(current)
+            if match == -1:
+                match = self.account.findText(current)
+            if match == -1:
+                extracted = _extract_email(current)
+                match = next((index for index in range(self.account.count()) if self.account.itemData(index) == extracted), -1)
+            if match == -1:
+                self.account.addItem(current, _extract_email(current))
+                match = self.account.count() - 1
+            self.account.setCurrentIndex(match)
         elif accounts:
             self.account.setCurrentIndex(1)
+        if hasattr(self, "account_count"):
+            self.account_count.setText(f"Outlook: {len(accounts)} account" if accounts else "Outlook: chưa tìm thấy")
         if hasattr(self, "statusBar"):
             self.statusBar().showMessage(f"Đã tải {len(accounts)} account Outlook", 4000)
 
@@ -365,33 +635,164 @@ class AutoMailWindow(QMainWindow):
         self.cc.setText(_join(_split(self.cc.text()) + cc_values))
         self.bcc.setText(_join(_split(self.bcc.text()) + bcc_values))
 
-    def add_selected_date_schedule(self) -> None:
+    def refresh_template_combo(self) -> None:
+        if not hasattr(self, "template_combo"):
+            return
+        current = self.template_combo.currentData() or self.template_combo.currentText()
+        self.template_combo.clear()
+        self.template_combo.addItem("Không dùng template có sẵn", "")
+        templates = list(dict.fromkeys([*self.config.get("templates", []), self.config.get("mail", {}).get("template", "")]))
+        for template in templates:
+            if template:
+                self.template_combo.addItem(Path(template).name, template)
+        if current:
+            index = self.template_combo.findData(current)
+            if index >= 0:
+                self.template_combo.setCurrentIndex(index)
+
+    def add_template_library_item(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Thêm template có sẵn", str(Path(__file__).parent / "templates"), "Email (*.eml)")
+        if not path:
+            return
+        cfg = load_config()
+        templates = list(dict.fromkeys([*cfg.get("templates", []), path]))
+        cfg["templates"] = templates
+        save_config(cfg)
+        self.config = cfg
+        self.refresh_template_combo()
+        self.template_combo.setCurrentIndex(self.template_combo.findData(path))
+        self.statusBar().showMessage(f"Đã thêm template {Path(path).name}", 4000)
+
+    def show_selected_date_info(self) -> None:
+        self.refresh_calendar_markers()
         date_text = self.calendar.selectedDate().toString("yyyy-MM-dd")
+        events = [item for item in self._collect_date_schedules() if item.get("date") == date_text]
+        if events:
+            summary = " | ".join(f"{item.get('time')} {Path(item.get('template', '')).name or item.get('subject', 'Mail')}" for item in events)
+            self.calendar.setToolTip(summary)
+            self.statusBar().showMessage(f"{date_text}: {summary}", 6000)
+        else:
+            self.calendar.setToolTip("Không có lịch gửi cho ngày này")
+
+    def refresh_calendar_markers(self) -> None:
+        default_format = QTextCharFormat()
+        for date_text in self._marked_schedule_dates:
+            self.calendar.setDateTextFormat(self.calendar.selectedDate().fromString(date_text, "yyyy-MM-dd"), default_format)
+        self._marked_schedule_dates.clear()
+        marker = QTextCharFormat()
+        marker.setBackground(QColor("#dbeafe"))
+        marker.setForeground(QColor("#1d4ed8"))
+        marker.setFontWeight(700)
+        for item in self._collect_date_schedules():
+            date_text = item.get("date", "")
+            if date_text:
+                self.calendar.setDateTextFormat(self.calendar.selectedDate().fromString(date_text, "yyyy-MM-dd"), marker)
+                self._marked_schedule_dates.add(date_text)
+
+    def _current_account_value(self) -> str:
+        return "" if self.account.currentIndex() <= 0 else str(self.account.currentData() or _extract_email(self.account.currentText()))
+
+    def new_day_mail_config(self) -> None:
+        self.to.clear()
+        self.cc.clear()
+        self.bcc.clear()
+        self.subject.clear()
+        self.editor.clear()
+        self.template_combo.setCurrentIndex(0)
+        self._insert_schedule_row(
+            date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
+            time=self.schedule_time.text().strip() or "08:00",
+            repeat="once",
+            account=self._current_account_value(),
+        )
+        self.refresh_calendar_markers()
+
+    def delete_selected_date_schedules(self) -> None:
+        selected_rows = sorted({index.row() for index in self.date_schedule_table.selectedIndexes()}, reverse=True)
+        if not selected_rows and self.date_schedule_table.currentRow() >= 0:
+            selected_rows = [self.date_schedule_table.currentRow()]
+        for row in selected_rows:
+            self.date_schedule_table.removeRow(row)
+        if selected_rows:
+            self.refresh_calendar_markers()
+            self.statusBar().showMessage(f"Đã xóa {len(selected_rows)} dòng lịch", 4000)
+
+    def _insert_schedule_row(
+        self,
+        *,
+        date: str,
+        time: str,
+        repeat: str = "once",
+        account: str = "",
+        template: str = "",
+        to: str = "",
+        cc: str = "",
+        bcc: str = "",
+    ) -> None:
         row = self.date_schedule_table.rowCount()
         self.date_schedule_table.insertRow(row)
-        for col, value in enumerate([date_text, self.schedule_time.text().strip() or "08:00", self.config.get("mail", {}).get("template", "")]):
+        for col, value in enumerate([date, time, repeat, account, template, to, cc, bcc]):
             self.date_schedule_table.setItem(row, col, QTableWidgetItem(value))
+
+    def add_selected_date_schedule(self) -> None:
+        self._insert_schedule_row(
+            date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
+            time=self.schedule_time.text().strip() or "08:00",
+            repeat="once",
+            account=self._current_account_value(),
+            template=self.config.get("mail", {}).get("template", ""),
+            to=self.to.text(),
+            cc=self.cc.text(),
+            bcc=self.bcc.text(),
+        )
+        self.refresh_calendar_markers()
+
+    def add_template_schedule(self) -> None:
+        path = str(self.template_combo.currentData() or "") if hasattr(self, "template_combo") else ""
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(self, "Thêm template vào lịch", str(Path(__file__).parent / "templates"), "Email (*.eml)")
+        if not path:
+            return
+        self._insert_schedule_row(
+            date=self.calendar.selectedDate().toString("yyyy-MM-dd"),
+            time=self.schedule_time.text().strip() or "08:00",
+            repeat=self.schedule_type.currentText() if self.schedule_type.currentText() in {"daily", "weekly"} else "once",
+            account=self._current_account_value(),
+            template=path,
+            to=self.to.text(),
+            cc=self.cc.text(),
+            bcc=self.bcc.text(),
+        )
+        self.refresh_calendar_markers()
 
     def _load_date_schedules(self, schedules: list[dict[str, Any]]) -> None:
         self.date_schedule_table.setRowCount(0)
         for item in schedules:
-            row = self.date_schedule_table.rowCount()
-            self.date_schedule_table.insertRow(row)
-            self.date_schedule_table.setItem(row, 0, QTableWidgetItem(str(item.get("date", ""))))
-            self.date_schedule_table.setItem(row, 1, QTableWidgetItem(str(item.get("time", "08:00"))))
-            self.date_schedule_table.setItem(row, 2, QTableWidgetItem(str(item.get("template", ""))))
+            self._insert_schedule_row(
+                date=str(item.get("date", "")),
+                time=str(item.get("time", "08:00")),
+                repeat=str(item.get("repeat", "once")),
+                account=str(item.get("account", "")),
+                template=str(item.get("template", "")),
+                to=_join(item.get("to", [])),
+                cc=_join(item.get("cc", [])),
+                bcc=_join(item.get("bcc", [])),
+            )
 
-    def _collect_date_schedules(self) -> list[dict[str, str]]:
-        schedules = []
+    def _collect_date_schedules(self) -> list[dict[str, Any]]:
+        schedules: list[dict[str, Any]] = []
         for row in range(self.date_schedule_table.rowCount()):
-            date_item = self.date_schedule_table.item(row, 0)
-            time_item = self.date_schedule_table.item(row, 1)
-            template_item = self.date_schedule_table.item(row, 2)
-            if date_item and date_item.text().strip():
+            values = [self.date_schedule_table.item(row, col).text().strip() if self.date_schedule_table.item(row, col) else "" for col in range(8)]
+            if values[0]:
                 schedules.append({
-                    "date": date_item.text().strip(),
-                    "time": time_item.text().strip() if time_item else "08:00",
-                    "template": template_item.text().strip() if template_item else "",
+                    "date": values[0],
+                    "time": values[1] or "08:00",
+                    "repeat": values[2] or "once",
+                    "account": values[3],
+                    "template": values[4],
+                    "to": _split(values[5]),
+                    "cc": _split(values[6]),
+                    "bcc": _split(values[7]),
                 })
         return schedules
 
